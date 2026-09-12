@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# env / secrets (never commit API keys — PHI-adjacent app)
+.env
+server/.env
+client/.env
+*.local
+
+# build output
+client/dist/
+
+# database (contains patient PHI — never commit)
+server/data/*.db
+server/data/*.db-*
+
+# logs / os
+*.log
+.DS_Store
+Thumbs.db

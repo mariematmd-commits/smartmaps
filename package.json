@@ -1,0 +1,15 @@
+{
+  "name": "smartmaps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Route/visit planner for a single traveling home-health nurse",
+  "scripts": {
+    "dev": "npm run dev --prefix client",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "npm run start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
