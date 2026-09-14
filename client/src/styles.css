@@ -210,6 +210,9 @@ body {
 }
 
 .col { min-width: 0; display: flex; flex-direction: column; }
+/* Author styles beat the UA sheet's [hidden] rule, so say it explicitly —
+   hidden columns must leave the grid entirely or they'd still take a track. */
+.col[hidden] { display: none; }
 
 .card {
   background: var(--card);

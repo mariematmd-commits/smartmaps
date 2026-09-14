@@ -56,8 +56,29 @@ export async function geocodeAddress(apiKey, address) {
   };
 }
 
+// Traffic-aware drive minutes for consecutive legs along an ordered route:
+// points[0]→[1], [1]→[2], … Returns one value per leg (length points.length-1),
+// with null where a leg couldn't be resolved, or null if the whole lookup fails.
+//
+// Distance Matrix bills per ELEMENT (one origin×destination pair), so asking for
+// the full cross-product of an 8-stop day would bill 49 elements to use the 7 on
+// the diagonal. Issuing one 1×1 request per leg bills exactly the 7 needed.
+// They run in parallel, so it is no slower in wall-clock terms.
+export async function driveMinutesLegs(apiKey, points) {
+  if (!hasKey(apiKey) || !points || points.length < 2) return null;
+  if (points.some((p) => p?.lat == null)) return null;
+  const legs = await Promise.all(
+    points.slice(0, -1).map(async (from, i) => {
+      const m = await driveMinutesMatrix(apiKey, [from], [points[i + 1]]);
+      return m?.[0]?.[0] ?? null;
+    })
+  );
+  return legs.every((v) => v == null) ? null : legs;
+}
+
 // Traffic-aware drive minutes for every origin→destination pair, or null on
-// failure (caller falls back to distance estimates).
+// failure (caller falls back to distance estimates). Bills origins×destinations
+// elements — prefer driveMinutesLegs for consecutive stops along a route.
 export async function driveMinutesMatrix(apiKey, origins, destinations) {
   if (!hasKey(apiKey) || !origins.length || !destinations.length) return null;
   if (origins.some((p) => p.lat == null) || destinations.some((p) => p.lat == null)) return null;

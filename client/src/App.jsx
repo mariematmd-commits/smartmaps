@@ -55,6 +55,13 @@ export default function App() {
     if (unlocked) loadAll();
   }, [unlocked, loadAll]);
 
+  // The two tabs use different grid widths, so the shared map's container
+  // changes size on a switch. Google Maps only re-measures on a resize event.
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    return () => clearTimeout(t);
+  }, [tab]);
+
   const flash = (msg) => {
     setNotice(msg);
     setTimeout(() => setNotice(''), 3500);
@@ -197,9 +204,11 @@ export default function App() {
         </div>
       )}
 
-      {tab === 'patients' ? (
-        <main className="layout">
-          <section className="col col-form">
+      {/* Both tabs render inside ONE <main> and share a single MapView. Swapping
+          tabs only toggles visibility, so the Google map is never unmounted and
+          rebuilt — each rebuild would be a billable map load. */}
+      <main className={tab === 'patients' ? 'layout' : 'layout layout-plan'}>
+        <section className="col col-form" hidden={tab !== 'patients'}>
             <PatientForm
               patient={editing}
               onSave={handleSave}
@@ -208,7 +217,7 @@ export default function App() {
             />
           </section>
 
-          <section className="col col-list">
+        <section className="col col-list" hidden={tab !== 'patients'}>
             <SettingsPanel
               settings={settings}
               onSaved={handleSettingsSaved}
@@ -231,32 +240,27 @@ export default function App() {
             />
           </section>
 
-          <section className="col col-map">
-            <MapView
-              patients={patients}
-              selectedId={selectedId}
-              apiKey={mapsKey}
-              onSelect={(p) => setSelectedId(p.id)}
-            />
-          </section>
-        </main>
-      ) : (
-        <main className="layout layout-plan">
-          <section className="col col-plan">
-            <WorkloadView onChanged={refresh} />
-            <WeekPlanner
-              plan={plan}
-              onPlan={setPlan}
-              patients={patients}
-              homeBase={settings?.home_base || ''}
-              apiKey={mapsKey}
-            />
-          </section>
-          <section className="col col-map">
-            <MapView patients={patients} groups={planGroups} apiKey={mapsKey} onSelect={() => {}} />
-          </section>
-        </main>
-      )}
+        <section className="col col-plan" hidden={tab !== 'plan'}>
+          <WorkloadView onChanged={refresh} />
+          <WeekPlanner
+            plan={plan}
+            onPlan={setPlan}
+            patients={patients}
+            homeBase={settings?.home_base || ''}
+            apiKey={mapsKey}
+          />
+        </section>
+
+        <section className="col col-map">
+          <MapView
+            patients={patients}
+            selectedId={tab === 'patients' ? selectedId : null}
+            groups={tab === 'plan' ? planGroups : null}
+            apiKey={mapsKey}
+            onSelect={(p) => tab === 'patients' && setSelectedId(p.id)}
+          />
+        </section>
+      </main>
     </div>
   );
 }

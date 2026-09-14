@@ -2,7 +2,7 @@
 // suggestion. Uses real drive times from the Maps API, falling back to estimates.
 
 import { estDriveMin } from './geo.js';
-import { driveMinutesMatrix } from './gmaps.js';
+import { driveMinutesMatrix, driveMinutesLegs } from './gmaps.js';
 
 const toMin = (t) => {
   if (!t) return null;
@@ -59,9 +59,10 @@ export async function buildDayState({ date, patients, visits, settings, apiKey }
   let schedDrives = confirmed.map(() => 0);
   if (confirmed.length > 1) {
     const pts = confirmed.map(({ p }) => p);
-    const m = await driveMinutesMatrix(apiKey, pts.slice(0, -1), pts.slice(1));
+    // Consecutive legs only — see driveMinutesLegs for why this matters to cost.
+    const legs = await driveMinutesLegs(apiKey, pts);
     for (let i = 1; i < confirmed.length; i++) {
-      const real = m && m[i - 1] ? m[i - 1][i - 1] : null;
+      const real = legs ? legs[i - 1] : null;
       schedDrives[i] = real != null ? real : estDriveMin(pts[i - 1], pts[i]);
     }
   }
