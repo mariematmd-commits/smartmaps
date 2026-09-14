@@ -11,6 +11,7 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
   const mapObj = useRef(null);
   const overlays = useRef([]); // markers + polylines to clear on each rebuild
   const infoWindow = useRef(null);
+  const lastBounds = useRef(null); // re-applied whenever the container resizes
   const [status, setStatus] = useState('loading');
 
   // Load the map + geometry library once a key is available. Guard on the map
@@ -52,6 +53,30 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
     };
   }, [apiKey]);
 
+  // Google measures its container once, at construction, and caches the result.
+  // Any map built while its box is still collapsed or mid-layout — a panel that
+  // was just expanded, a column that just changed width — stays blank, and no
+  // amount of later resize events revives it. Watching the element and re-fitting
+  // the stored bounds whenever it actually has a size fixes that class of bug at
+  // the source, rather than guessing at timeouts.
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el || status !== 'ready' || typeof ResizeObserver === 'undefined') return;
+    let last = { w: 0, h: 0 };
+    const obs = new ResizeObserver(([entry]) => {
+      const { width: w, height: h } = entry.contentRect;
+      if (!w || !h || !mapObj.current) return;
+      if (Math.abs(w - last.w) < 2 && Math.abs(h - last.h) < 2) return;
+      last = { w, h };
+      window.dispatchEvent(new Event('resize'));
+      if (lastBounds.current && !lastBounds.current.isEmpty()) {
+        mapObj.current.fitBounds(lastBounds.current, 60);
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [status]);
+
   function clearOverlays() {
     for (const o of overlays.current) o.setMap(null);
     overlays.current = [];
@@ -63,6 +88,7 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
     if (!map || status !== 'ready') return;
     clearOverlays();
     const bounds = new google.maps.LatLngBounds();
+    lastBounds.current = bounds; // so a later container resize can re-fit them
 
     // Plan mode: color patients by their planned day.
     if (groups) {
