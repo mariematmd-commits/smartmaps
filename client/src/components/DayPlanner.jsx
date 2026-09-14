@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../api.js';
 import { dueStatus, dayRouteUrl } from '../format.js';
+import MapView from './MapView.jsx';
+import { geocodeAddress, hasKey } from '../lib/gmaps.js';
+
+// Home base rarely changes, so geocode each address once per session rather
+// than on every render of the day map.
+const homeBaseCache = new Map();
 
 const toMin = (t) => {
   if (!t) return null;
@@ -59,7 +65,7 @@ function CallActions({ visit, defaultTime, onConfirm, onDecline, onLater, busy }
   );
 }
 
-export default function DayPlanner({ date, patients = [], homeBase = '', onChange }) {
+export default function DayPlanner({ date, patients = [], homeBase = '', apiKey = '', onChange }) {
   const [state, setState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -69,6 +75,8 @@ export default function DayPlanner({ date, patients = [], homeBase = '', onChang
   const [showList, setShowList] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrImg, setQrImg] = useState('');
+  const [showMap, setShowMap] = useState(false);
+  const [homePoint, setHomePoint] = useState(null);
 
   async function load() {
     try {
@@ -94,6 +102,31 @@ export default function DayPlanner({ date, patients = [], homeBase = '', onChang
       .then(setQrImg)
       .catch(() => setQrImg(''));
   }, [showQr, state, homeBase]);
+
+  // Locate the home base so the day map can show where the loop starts and ends.
+  // Only runs when the map is actually open, so it costs nothing otherwise.
+  useEffect(() => {
+    const addr = homeBase.trim();
+    if (!showMap || !addr || !hasKey(apiKey)) return;
+    if (homeBaseCache.has(addr)) {
+      setHomePoint(homeBaseCache.get(addr));
+      return;
+    }
+    let cancelled = false;
+    geocodeAddress(apiKey, addr)
+      .then((g) => {
+        const pt = { lat: g.lat, lng: g.lng, address: g.formatted || addr };
+        homeBaseCache.set(addr, pt);
+        if (!cancelled) setHomePoint(pt);
+      })
+      .catch(() => {
+        homeBaseCache.set(addr, null); // don't retry a bad address all session
+        if (!cancelled) setHomePoint(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showMap, homeBase, apiKey]);
 
   async function act(fn) {
     setBusy(true);
@@ -134,6 +167,8 @@ export default function DayPlanner({ date, patients = [], homeBase = '', onChang
     : state.dayStart;
   const endOfLast = last ? toHHMM((toMin(last.slot_time) || 0) + (last.visit_minutes || 45)) : null;
   const routeUrl = state.schedule.length > 0 ? dayRouteUrl(homeBase, state.schedule) : null;
+  // Only stops that were geocoded can be drawn.
+  const mappableStops = state.schedule.filter((s) => s.lat != null && s.lng != null);
 
   // When empty, show the whole list (browse like a dropdown); when typing, filter.
   const addMatches = addQuery.trim()
@@ -176,6 +211,39 @@ export default function DayPlanner({ date, patients = [], homeBase = '', onChang
             <a className="button primary full" href={routeUrl} target="_blank" rel="noopener noreferrer">
               Open route in Google Maps →
             </a>
+            <button className="seg" onClick={() => setShowMap((m) => !m)}>
+              {showMap ? 'Hide map' : '🗺 Show the day on a map'}
+            </button>
+            {showMap && (
+              <div className="day-map">
+                {mappableStops.length === 0 ? (
+                  <p className="hint">
+                    None of today's stops have been located yet — add addresses so they can be
+                    placed on the map.
+                  </p>
+                ) : (
+                  <>
+                    <MapView
+                      patients={[]}
+                      apiKey={apiKey}
+                      route={{
+                        start: homePoint,
+                        orderedStops: mappableStops,
+                        returnToStart: Boolean(homePoint),
+                      }}
+                      onSelect={() => {}}
+                    />
+                    <span className="field-hint">
+                      Numbers are visit order{homePoint ? ', S is your home base' : ''}. The dashed
+                      line shows the order of stops, not the actual roads — tap “Open route in
+                      Google Maps” for real turn-by-turn directions.
+                      {mappableStops.length < state.schedule.length &&
+                        ` ${state.schedule.length - mappableStops.length} stop(s) without an address aren't shown.`}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
             <button className="seg" onClick={() => setShowQr((s) => !s)}>
               {showQr ? 'Hide QR code' : '📱 Show QR code for phone'}
             </button>

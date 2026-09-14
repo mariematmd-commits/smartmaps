@@ -244,7 +244,13 @@ export default function App() {
         <main className="layout layout-plan">
           <section className="col col-plan">
             <WorkloadView onChanged={refresh} />
-            <WeekPlanner plan={plan} onPlan={setPlan} patients={patients} homeBase={settings?.home_base || ''} />
+            <WeekPlanner
+              plan={plan}
+              onPlan={setPlan}
+              patients={patients}
+              homeBase={settings?.home_base || ''}
+              apiKey={mapsKey}
+            />
           </section>
           <section className="col col-map">
             <MapView patients={patients} groups={planGroups} apiKey={mapsKey} onSelect={() => {}} />

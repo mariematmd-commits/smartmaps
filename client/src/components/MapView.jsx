@@ -99,18 +99,22 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
     }
 
     if (route) {
-      // Start marker.
-      const startPos = { lat: route.start.lat, lng: route.start.lng };
-      bounds.extend(startPos);
-      overlays.current.push(
-        new google.maps.Marker({
-          map,
-          position: startPos,
-          label: { text: 'S', color: '#fff', fontWeight: 'bold' },
-          title: `Start — ${route.start.address}`,
-          zIndex: 1000,
-        })
-      );
+      // Start marker — optional, since a day route only has one when a home
+      // base is set and could be geocoded.
+      let startPos = null;
+      if (route.start?.lat != null) {
+        startPos = { lat: route.start.lat, lng: route.start.lng };
+        bounds.extend(startPos);
+        overlays.current.push(
+          new google.maps.Marker({
+            map,
+            position: startPos,
+            label: { text: 'S', color: '#fff', fontWeight: 'bold' },
+            title: `Start — ${route.start.address}`,
+            zIndex: 1000,
+          })
+        );
+      }
 
       // Numbered stops in visit order.
       route.orderedStops.forEach((s, i) => {
@@ -130,7 +134,9 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
         overlays.current.push(marker);
       });
 
-      // The route path.
+      // The route path. With real road geometry (Routes API) draw it solid;
+      // otherwise connect the stops in visit order with a dashed line, which
+      // shows the shape of the day without pretending to be the actual roads.
       if (route.polyline && google.maps.geometry) {
         const path = google.maps.geometry.encoding.decodePath(route.polyline);
         overlays.current.push(
@@ -140,6 +146,27 @@ export default function MapView({ patients, selectedId, route, groups, apiKey, o
             strokeColor: '#2563eb',
             strokeOpacity: 0.85,
             strokeWeight: 5,
+          })
+        );
+      } else if (route.orderedStops.length) {
+        const path = [
+          ...(startPos ? [startPos] : []),
+          ...route.orderedStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+          ...(startPos && route.returnToStart ? [startPos] : []),
+        ];
+        overlays.current.push(
+          new google.maps.Polyline({
+            map,
+            path,
+            strokeOpacity: 0, // the dashes come from the icon below
+            icons: [
+              {
+                icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.9, strokeWeight: 3, scale: 3 },
+                offset: '0',
+                repeat: '14px',
+              },
+            ],
+            strokeColor: '#2563eb',
           })
         );
       }

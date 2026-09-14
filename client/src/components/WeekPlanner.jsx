@@ -29,7 +29,7 @@ export function activeDays(plan) {
   return plan ? plan.days.filter((d) => d.patients.length > 0) : [];
 }
 
-export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = '' }) {
+export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = '', apiKey = '' }) {
   const [weekStart, setWeekStart] = useState(nextMonday);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -201,6 +201,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
               date={selectedDate}
               patients={patients}
               homeBase={homeBase}
+              apiKey={apiKey}
               onChange={reloadVisits}
             />
           )}
