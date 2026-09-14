@@ -56,6 +56,60 @@ export async function geocodeAddress(apiKey, address) {
   };
 }
 
+// Road-following geometry for an ordered run of stops, via Routes API v2.
+//
+// Why this one: the browser's legacy DirectionsService and DistanceMatrix are
+// both REQUEST_DENIED on this project (they're legacy APIs), but computeRoutes
+// answers straight from the browser over CORS. One request returns the encoded
+// polyline that follows actual streets AND traffic-aware per-leg durations, so
+// a day's route costs a single call.
+//
+// points: [{lat,lng}] in visit order. `loop` repeats the first point as the
+// destination (used when a home base starts and ends the day).
+// Returns { polyline, legMinutes[], totalMinutes, totalMeters } or null.
+export async function routeGeometry(apiKey, points, loop = false) {
+  if (!hasKey(apiKey) || !points || points.length < 2) return null;
+  if (points.some((p) => p?.lat == null)) return null;
+
+  const at = (p) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+  const origin = points[0];
+  const destination = loop ? points[0] : points[points.length - 1];
+  const middle = loop ? points.slice(1) : points.slice(1, -1);
+
+  try {
+    const resp = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask':
+          'routes.polyline.encodedPolyline,routes.duration,routes.distanceMeters,routes.legs.duration',
+      },
+      body: JSON.stringify({
+        origin: at(origin),
+        destination: at(destination),
+        intermediates: middle.map(at),
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_AWARE',
+        polylineQuality: 'OVERVIEW',
+      }),
+    });
+    if (!resp.ok) return null;
+    const route = (await resp.json())?.routes?.[0];
+    const encoded = route?.polyline?.encodedPolyline;
+    if (!encoded) return null;
+    const secs = (s) => (s ? Math.max(1, Math.round(parseInt(s, 10) / 60)) : null);
+    return {
+      polyline: encoded,
+      legMinutes: (route.legs || []).map((l) => secs(l.duration)),
+      totalMinutes: secs(route.duration),
+      totalMeters: route.distanceMeters ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Traffic-aware drive minutes for consecutive legs along an ordered route:
 // points[0]→[1], [1]→[2], … Returns one value per leg (length points.length-1),
 // with null where a leg couldn't be resolved, or null if the whole lookup fails.

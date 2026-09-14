@@ -3,11 +3,19 @@ import QRCode from 'qrcode';
 import { api } from '../api.js';
 import { dueStatus, dayRouteUrl } from '../format.js';
 import MapView from './MapView.jsx';
-import { geocodeAddress, hasKey } from '../lib/gmaps.js';
+import { geocodeAddress, hasKey, routeGeometry } from '../lib/gmaps.js';
 
 // Home base rarely changes, so geocode each address once per session rather
 // than on every render of the day map.
 const homeBaseCache = new Map();
+
+// "1 h 25 min" / "48 min" of driving, plus miles when we have them.
+function fmtDriveTotal({ totalMinutes, totalMeters }) {
+  const mins = totalMinutes ?? 0;
+  const time = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  if (!totalMeters) return time;
+  return `${time} · ${(totalMeters / 1609.34).toFixed(1)} mi`;
+}
 
 const toMin = (t) => {
   if (!t) return null;
@@ -77,6 +85,7 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
   const [qrImg, setQrImg] = useState('');
   const [showMap, setShowMap] = useState(false);
   const [homePoint, setHomePoint] = useState(null);
+  const [roadRoute, setRoadRoute] = useState(null); // real street geometry, once fetched
 
   async function load() {
     try {
@@ -110,6 +119,26 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
     return () => clearTimeout(t);
   }, [showMap]);
+
+  // Fetch street-following geometry for the day, once, when the map is opened.
+  // Falls back to the dashed straight-line connector if the call fails.
+  useEffect(() => {
+    if (!showMap || !hasKey(apiKey)) return;
+    const stops = state?.schedule?.filter((s) => s.lat != null && s.lng != null) ?? [];
+    if (stops.length < 2 && !(homePoint && stops.length)) {
+      setRoadRoute(null);
+      return;
+    }
+    const pts = homePoint ? [homePoint, ...stops] : stops;
+    let cancelled = false;
+    routeGeometry(apiKey, pts, Boolean(homePoint)).then((r) => {
+      if (!cancelled) setRoadRoute(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // state.schedule identity changes on every rebuild; key off the stop order.
+  }, [showMap, apiKey, homePoint, (state?.schedule ?? []).map((s) => s.id).join(',')]);
 
   // Locate the home base so the day map can show where the loop starts and ends.
   // Only runs when the map is actually open, so it costs nothing otherwise.
@@ -238,13 +267,16 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
                         start: homePoint,
                         orderedStops: mappableStops,
                         returnToStart: Boolean(homePoint),
+                        polyline: roadRoute?.polyline ?? null,
                       }}
                       onSelect={() => {}}
                     />
                     <span className="field-hint">
-                      Numbers are visit order{homePoint ? ', S is your home base' : ''}. The dashed
-                      line shows the order of stops, not the actual roads — tap “Open route in
-                      Google Maps” for real turn-by-turn directions.
+                      Numbers are visit order{homePoint ? ', S is your home base' : ''}.
+                      {roadRoute
+                        ? ` Driving route follows the streets — about ${fmtDriveTotal(roadRoute)} behind the wheel.`
+                        : ' Showing stop order as a dashed line; the street-by-street route is still loading.'}{' '}
+                      Tap “Open route in Google Maps” for turn-by-turn directions.
                       {mappableStops.length < state.schedule.length &&
                         ` ${state.schedule.length - mappableStops.length} stop(s) without an address aren't shown.`}
                     </span>
