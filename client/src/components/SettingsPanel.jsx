@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { storageStatus, formatBytes, canChooseLocation } from '../lib/storage.js';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -29,6 +30,11 @@ export default function SettingsPanel({
   const [p2, setP2] = useState('');
   const [pcBusy, setPcBusy] = useState(false);
   const [pcMsg, setPcMsg] = useState('');
+  const [storage, setStorage] = useState(null);
+
+  useEffect(() => {
+    if (open) storageStatus().then(setStorage);
+  }, [open]);
 
   useEffect(() => {
     if (settings) {
@@ -256,8 +262,21 @@ export default function SettingsPanel({
               Everything is stored only on this computer, in this browser — never on a server. Back
               up regularly: clearing this browser's data would erase it.
             </span>
+
+            {storage?.supported && (
+              <span className="field-hint">
+                {storage.persisted ? '🔒 Protected — ' : '⚠️ Not protected — '}
+                {storage.persisted
+                  ? 'this browser will not delete your data to free up space.'
+                  : 'the browser may delete your data if this computer runs low on disk space. Keep a backup.'}
+                {' '}Using {formatBytes(storage.usage)}.
+              </span>
+            )}
+
             <div className="import-controls">
-              <button onClick={onExport}>Export backup</button>
+              <button onClick={onExport}>
+                {canChooseLocation() ? 'Save backup…' : 'Export backup'}
+              </button>
               <label className="button-like">
                 Import backup
                 <input
@@ -268,6 +287,13 @@ export default function SettingsPanel({
                 />
               </label>
             </div>
+            <span className="field-hint">
+              {canChooseLocation()
+                ? 'You choose where the file goes — a USB stick, Dropbox, or any folder.'
+                : 'The file goes to your Downloads folder; move it somewhere safe.'}{' '}
+              It contains your patient records <strong>and your Google Maps key</strong>, unencrypted
+              — treat it like the records themselves.
+            </span>
           </div>
 
           <div className="import-section">

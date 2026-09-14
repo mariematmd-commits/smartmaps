@@ -8,6 +8,7 @@ import { planWeek } from './lib/planWeek.js';
 import { buildDayState } from './lib/dayPlan.js';
 import { computeWorkload, levelLoad } from './lib/workload.js';
 import { parseCsv } from './lib/csv.js';
+import { requestPersistence } from './lib/storage.js';
 import { todayStr, addDaysStr, isDateStr } from './lib/dates.js';
 
 const DEFAULT_SETTINGS = {
@@ -88,6 +89,8 @@ export const api = {
   // Called once on load. Opens the app without prompting unless this device is
   // passcode-protected; returns whether the UI still needs to ask for one.
   async init() {
+    // Ask the browser not to evict this data. Never blocks startup.
+    requestPersistence().catch(() => {});
     MODE = await vault.getMode();
     if (MODE === vault.MODE_PASSCODE) return { needsPasscode: true };
     if (MODE === vault.MODE_OPEN) {

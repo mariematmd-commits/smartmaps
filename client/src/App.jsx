@@ -8,15 +8,7 @@ import WeekPlanner, { activeDays } from './components/WeekPlanner.jsx';
 import WorkloadView from './components/WorkloadView.jsx';
 import LockScreen from './components/LockScreen.jsx';
 import { dayColor } from './dayColors.js';
-
-function download(filename, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { saveBackup } from './lib/storage.js';
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -132,13 +124,17 @@ export default function App() {
     setPlan(null);
   }
 
-  function handleExport() {
+  async function handleExport() {
     try {
-      const data = api.exportData();
-      download(`smartmaps-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data));
-      flash('Backup downloaded.');
+      const result = await saveBackup(JSON.stringify(api.exportData(), null, 2));
+      if (!result) return; // cancelled the save dialog
+      flash(
+        result.method === 'picked'
+          ? `Backup saved as ${result.name}.`
+          : `Backup downloaded as ${result.name}.`
+      );
     } catch (err) {
-      flash(err.message);
+      flash(`Backup failed: ${err.message}`);
     }
   }
 
