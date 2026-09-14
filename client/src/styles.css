@@ -292,9 +292,19 @@ button.danger:hover { background: #fef2f2; }
 
 /* Day route preview inside the Schedule card */
 .day-map { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0; }
-.day-map .map { height: 300px; border-radius: 8px; border: 1px solid var(--border); }
-.day-map .map-placeholder { margin: 0; }
-@media (max-width: 640px) { .day-map .map { height: 220px; } }
+/* The shared `.map` rule makes it a 0-basis flex item that only gets height from
+   min-height. Google measures its container during that intermediate layout and
+   sticks at height 0, rendering nothing. Give the day map a plain definite
+   height instead — flex:none and matching height/min-height. */
+.day-map .map {
+  flex: none;
+  height: 300px;
+  min-height: 300px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.day-map .map-placeholder { margin: 0; min-height: 0; }
+@media (max-width: 640px) { .day-map .map { height: 220px; min-height: 220px; } }
 
 /* Deadline badges in the patient list */
 .patient-badges { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; }

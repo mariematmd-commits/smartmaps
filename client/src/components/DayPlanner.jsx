@@ -103,6 +103,14 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
       .catch(() => setQrImg(''));
   }, [showQr, state, homeBase]);
 
+  // Opening the map inserts a new container mid-page; nudge Google to measure it
+  // once it has actually been laid out, or it can come up with no tiles.
+  useEffect(() => {
+    if (!showMap) return;
+    const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
+    return () => clearTimeout(t);
+  }, [showMap]);
+
   // Locate the home base so the day map can show where the loop starts and ends.
   // Only runs when the map is actually open, so it costs nothing otherwise.
   useEffect(() => {
