@@ -52,42 +52,53 @@ const normName = (s) =>
     .trim();
 const normPhone = (s) => String(s || '').replace(/\D/g, '');
 
-// Same person? Same name, unless both records carry phone numbers that
-// disagree — two different Maria Garcias keep their own rows.
+const normText = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+const sameText = (a, b) => normText(a) === normText(b);
+const samePhone = (a, b) => normPhone(a) === normPhone(b);
+
+// Addresses need a little latitude in one direction only: geocoding rewrites
+// "255 N Washington St, Rockville, MD" into "…, MD 20850, USA", so a re-import
+// of the very same file would otherwise look different. One being the start of
+// the other counts as the same address; anything else does not.
+function sameAddress(a, b) {
+  const na = normText(a).replace(/[.,]/g, '');
+  const nb = normText(b).replace(/[.,]/g, '');
+  if (na === nb) return true;
+  if (!na || !nb) return false;
+  return na.startsWith(nb) || nb.startsWith(na);
+}
+
+// Two records are the same patient only when every piece of information
+// matches. Anything different — a second address, another phone number — and
+// they stay two separate patients.
+function isSamePatient(a, b, { compareDue = true } = {}) {
+  if (!sameText(a.name, b.name)) return false;
+  if (!samePhone(a.phone, b.phone)) return false;
+  if (!samePhone(a.phone2, b.phone2)) return false;
+  if (!sameText(a.email, b.email)) return false;
+  if (!sameAddress(a.address, b.address)) return false;
+  if (!sameText(a.notes, b.notes)) return false;
+  if (Number(a.visit_minutes) !== Number(b.visit_minutes)) return false;
+  if (Number(a.cadence_days) !== Number(b.cadence_days)) return false;
+  if (compareDue && (a.due_by || '') !== (b.due_by || '')) return false;
+  return true;
+}
+
+// An imported row is a duplicate only if an identical patient already exists.
+// Due dates are compared only when the file actually stated one — a blank
+// column gets an auto-assigned date that would differ between imports.
 function findDuplicate(rec) {
-  const n = normName(rec.name);
-  if (!n) return null;
-  const recPhone = normPhone(rec.phone);
-  return (
-    DATA.patients.find((p) => {
-      if (normName(p.name) !== n) return false;
-      const pPhone = normPhone(p.phone);
-      if (recPhone && pPhone && recPhone !== pPhone) return false;
-      return true;
-    }) || null
-  );
+  if (!normText(rec.name)) return null;
+  const compareDue = Boolean(rec.explicitDue);
+  return DATA.patients.find((p) => isSamePatient(p, rec, { compareDue })) || null;
 }
 
-// Merge a freshly imported row into an existing patient: fill gaps, never
-// overwrite something she has already entered or corrected by hand.
-function mergeInto(existing, rec) {
-  let gainedAddress = false;
-  for (const f of ['address', 'phone', 'phone2', 'email', 'notes']) {
-    if (!existing[f] && rec[f]) {
-      existing[f] = rec[f];
-      if (f === 'address') gainedAddress = true;
-    }
-  }
-  if (!existing.due_by && rec.due_by) existing.due_by = rec.due_by;
-  return gainedAddress;
-}
-
-// Group the current list into sets of records that are the same person.
-// Returns only the groups with more than one member, each ordered oldest first.
+// Group the list into sets of records that are identical in every field.
+// Returns only groups with more than one member, each ordered oldest first.
 function duplicateGroups() {
-  const byName = new Map();
+  const byName = new Map(); // cheap pre-filter before the full comparison
   for (const p of DATA.patients) {
-    const n = normName(p.name);
+    const n = normText(p.name);
     if (!n) continue;
     if (!byName.has(n)) byName.set(n, []);
     byName.get(n).push(p);
@@ -95,16 +106,9 @@ function duplicateGroups() {
   const groups = [];
   for (const sameName of byName.values()) {
     if (sameName.length < 2) continue;
-    // Split by phone: same name with two different numbers is two people.
     const buckets = [];
     for (const p of sameName) {
-      const phone = normPhone(p.phone);
-      const bucket = buckets.find((b) =>
-        b.some((q) => {
-          const qp = normPhone(q.phone);
-          return !phone || !qp || phone === qp;
-        })
-      );
+      const bucket = buckets.find((b) => isSamePatient(b[0], p));
       if (bucket) bucket.push(p);
       else buckets.push([p]);
     }
@@ -433,15 +437,13 @@ export const api = {
     for (const group of groups) {
       const [keep, ...copies] = group;
       for (const dup of copies) {
-        for (const f of ['address', 'phone', 'phone2', 'email', 'notes']) {
-          if (!keep[f] && dup[f]) keep[f] = dup[f];
-        }
+        // The records are identical, so there is nothing to copy over except a
+        // location one of them happens to have already looked up.
         if (keep.lat == null && dup.lat != null) {
           keep.lat = dup.lat;
           keep.lng = dup.lng;
           if (dup.address) keep.address = dup.address;
         }
-        if (!keep.due_by && dup.due_by) keep.due_by = dup.due_by;
         if (!keep.last_visited && dup.last_visited) keep.last_visited = dup.last_visited;
 
         // Re-point this copy's visits at the record we're keeping, dropping any
@@ -524,11 +526,11 @@ export const api = {
       let needsGeocode;
 
       if (existing) {
-        const gainedAddress = mergeInto(existing, rec);
+        // Identical to a patient already on the list: nothing to copy across,
+        // just don't add a second copy.
         merged++;
         target = existing;
-        // Only spend a lookup if this row actually told us something new.
-        needsGeocode = gainedAddress || (existing.address && existing.lat == null);
+        needsGeocode = Boolean(existing.address) && existing.lat == null;
       } else {
         target = {
           id: DATA.patientSeq++, name: rec.name, address: rec.address, lat: null, lng: null,

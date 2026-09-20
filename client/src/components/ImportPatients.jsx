@@ -85,9 +85,9 @@ export default function ImportPatients({ onImported }) {
           </p>
           <p className="field-hint">
             You can import <strong>as many files as you like</strong>, now or later — each one adds
-            to your list. Anyone who appears in more than one file stays a single patient: details
-            from the newer file fill in whatever was blank, and nothing you have already entered
-            gets overwritten.
+            to your list. Importing the same file twice is safe: a row identical to a patient you
+            already have is skipped rather than added again. Anyone whose details differ in any
+            way is treated as a separate patient.
           </p>
 
           <div className="import-controls">

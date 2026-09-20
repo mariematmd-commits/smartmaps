@@ -106,8 +106,9 @@ export default function PatientList({
             <strong>
               {duplicateCount} duplicate patient{duplicateCount === 1 ? '' : 's'}
             </strong>{' '}
-            — the same person is on your list more than once, usually from importing a file twice.
-            Merging keeps one copy of each and combines their details.
+            — these records are identical in every field, usually from importing the same file
+            twice. Merging keeps one copy of each. Patients whose details differ in any way are
+            left alone.
           </span>
           <button
             className="primary"
