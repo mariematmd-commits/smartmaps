@@ -113,6 +113,21 @@ export default function App() {
     flash('Patient deleted.');
   }
 
+  // Inline address entry from the patient list: save it, then locate it in one
+  // step so she can work straight down a freshly imported list of names.
+  async function handleSaveAddress(p, address) {
+    await api.updatePatient(p.id, { address });
+    if (geocodingEnabled) {
+      try {
+        await api.geocodePatient(p.id);
+      } catch {
+        await refresh();
+        throw new Error(`Saved, but “${address}” could not be found on the map. Check the spelling.`);
+      }
+    }
+    await refresh();
+  }
+
   async function handleGeocode(p) {
     try {
       await api.geocodePatient(p.id);
@@ -255,6 +270,7 @@ export default function App() {
             onGeocode={handleGeocode}
             onLogVisit={handleLogVisit}
             onSelect={(p) => setSelectedId(p.id)}
+            onSaveAddress={handleSaveAddress}
           />
         </section>
 

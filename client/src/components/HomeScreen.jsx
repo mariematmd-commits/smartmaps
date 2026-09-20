@@ -91,8 +91,8 @@ export default function HomeScreen({ patients, settings, geocodingEnabled, onGo 
     );
   }
 
-  const located = patients.filter((p) => p.lat != null && p.lng != null).length;
-  const needsAddress = patients.length - located;
+  // Same definition the Patients page uses: no address typed yet.
+  const needsAddress = patients.filter((p) => !p.address).length;
   const overdue = patients.filter((p) => p.due_by && daysUntil(p.due_by) < 0).length;
   const dueSoon = patients.filter((p) => {
     if (!p.due_by) return false;

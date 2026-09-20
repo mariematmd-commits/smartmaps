@@ -482,6 +482,22 @@ a.button.primary:hover { background: var(--primary-dark); }
   background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
   padding: 0.6rem; font-size: 0.72rem; overflow-x: auto; white-space: pre;
 }
+/* Inline address entry for imported patients */
+.addr-nudge {
+  margin: 0 0 0.6rem; font-size: 0.82rem; color: #9a3412;
+  background: var(--warn-bg); border: 1px solid var(--warn-border);
+  border-radius: 7px; padding: 0.5rem 0.65rem;
+}
+.addr-row { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
+.addr-input {
+  flex: 1; min-width: 0; padding: 0.45rem 0.6rem;
+  border: 1px solid var(--warn-border); border-radius: 6px; font-size: 0.88rem;
+  background: #fffdf8;
+}
+.addr-input:focus { outline: 2px solid var(--primary); border-color: var(--primary); background: #fff; }
+.addr-row button { flex: none; }
+.addr-error { margin-top: 0.3rem; font-size: 0.78rem; color: var(--danger); }
+
 .file-queue { list-style: none; margin: 0.2rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
 .file-queue li {
   display: flex; align-items: center; gap: 0.4rem;
