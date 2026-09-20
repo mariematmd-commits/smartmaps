@@ -635,3 +635,4 @@ button.stat:not(:disabled):hover { background: #eff4ff; }
 .home-alert.danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
 .filter-chip.danger { border-color: #fecaca; color: var(--danger); }
 .filter-chip.on.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.wa-why { font-size: 0.75rem; color: var(--muted); font-style: italic; }

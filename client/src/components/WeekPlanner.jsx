@@ -269,6 +269,60 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
 
   const days = activeDays(plan);
 
+  // A visit only counts as "handled" while it is still live. Once she has been
+  // told no, that patient is unscheduled again — and if their window is closing
+  // the alarm has to come back, which is the whole point of this.
+  const ACTIVE = ['proposed', 'confirmed', 'callback'];
+
+  // Same idea as the proposal warning, but against the week as it really
+  // stands: anyone at risk with no live visit left, including people who were
+  // scheduled and have since declined.
+  const droppedAtRisk = (() => {
+    if (!plan || !committed) return [];
+    const liveByPatient = new Set(
+      visits.filter((v) => ACTIVE.includes(v.status)).map((v) => v.patient_id)
+    );
+    // Days as currently loaded, so suggestions account for real capacity.
+    const dayShape = plan.days.map((d) => ({
+      date: d.date,
+      label: d.label,
+      patients: visits.filter((v) => v.date === d.date && ACTIVE.includes(v.status)),
+    }));
+    return atRisk(patients)
+      .filter((r) => !liveByPatient.has(r.patient.id))
+      .map((r) => ({
+        ...r,
+        // The declined visit, if there is one — reuse it rather than piling up
+        // a second record for the same person.
+        declined: visits.find(
+          (v) => v.patient_id === r.patient.id && !ACTIVE.includes(v.status)
+        ),
+        suggestion: suggestDay(r.patient, dayShape, { maxPerDay: plan.maxPerDay || 8 }),
+      }))
+      .slice(0, 8);
+  })();
+
+  // Put a dropped patient back on a day: revive their declined visit if they
+  // have one, otherwise add a fresh one. Either way it goes back to 'proposed',
+  // because she will have to ring them again.
+  async function rescheduleDropped(row, date) {
+    setBusy(true);
+    setError('');
+    try {
+      if (row.declined) {
+        await api.updateVisit(row.declined.id, { date, status: 'proposed', slot_time: null });
+      } else {
+        await api.addVisit({ patient_id: row.patient.id, date, status: 'proposed' });
+      }
+      await reloadVisits();
+      setSelectedDate(date);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Who is running out of window and isn't already on the board this week.
   const unplacedAtRisk = (() => {
     if (!plan) return [];
@@ -528,6 +582,48 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
             <strong>Working the week of {formatDate(plan.weekStart)}</strong>
             <button onClick={() => setCommitted(false)}>Back to proposal</button>
           </div>
+
+          {/* The safety net: someone she scheduled, then couldn't reach or was
+              turned down by, whose window is now closing with nothing booked. */}
+          {droppedAtRisk.length > 0 && (
+            <div className="window-alert">
+              <strong>
+                ⚠️ {droppedAtRisk.length} patient{droppedAtRisk.length === 1 ? '' : 's'} no longer
+                booked this week and running out of window
+              </strong>
+              <ul>
+                {droppedAtRisk.map((row) => (
+                  <li key={row.patient.id}>
+                    <span className="wa-name">{row.patient.name}</span>
+                    <span className={`wa-state ${row.level}`}>
+                      {row.level === 'missed'
+                        ? `${row.daysOver}d past the window`
+                        : `window closes in ${row.daysLeft}d`}
+                    </span>
+                    {row.declined && <span className="wa-why">said no to {formatDate(row.declined.date)}</span>}
+                    {row.suggestion ? (
+                      <button
+                        className="seg on"
+                        disabled={busy}
+                        onClick={() => rescheduleDropped(row, row.suggestion.date)}
+                      >
+                        Try {row.suggestion.label}
+                        {!row.suggestion.inWindow ? ' · soonest possible' : ''}
+                      </button>
+                    ) : (
+                      <span className="field-hint">
+                        {row.patient.lat == null ? 'Needs an address first' : 'Every day is full'}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <span className="field-hint">
+                This puts them back on that day to call again — or move them yourself on the board
+                below.
+              </span>
+            </div>
+          )}
 
           <div className="day-chips">
             {plan.days
