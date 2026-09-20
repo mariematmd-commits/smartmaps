@@ -7,8 +7,26 @@ import SettingsPanel from './components/SettingsPanel.jsx';
 import WeekPlanner, { activeDays } from './components/WeekPlanner.jsx';
 import WorkloadView from './components/WorkloadView.jsx';
 import LockScreen from './components/LockScreen.jsx';
+import HomeScreen from './components/HomeScreen.jsx';
+import ImportPatients from './components/ImportPatients.jsx';
 import { dayColor } from './dayColors.js';
 import { saveBackup } from './lib/storage.js';
+
+// One page at a time, so nothing is crowded on a phone.
+const NAV = [
+  { id: 'home', label: 'Home', icon: '🏠' },
+  { id: 'plan', label: 'Plan', icon: '🗓' },
+  { id: 'add', label: 'Add', icon: '➕' },
+  { id: 'patients', label: 'Patients', icon: '👥' },
+  { id: 'settings', label: 'Settings', icon: '⚙' },
+];
+const PAGE_TITLES = {
+  home: 'Visit planner',
+  plan: 'Plan the week',
+  add: 'Add a patient',
+  patients: 'Your patients',
+  settings: 'Settings',
+};
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -21,7 +39,7 @@ export default function App() {
   const [geocodingEnabled, setGeocodingEnabled] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState('patients');
+  const [page, setPage] = useState('home');
   const [plan, setPlan] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -55,12 +73,12 @@ export default function App() {
     if (unlocked) loadAll();
   }, [unlocked, loadAll]);
 
-  // The two tabs use different grid widths, so the shared map's container
-  // changes size on a switch. Google Maps only re-measures on a resize event.
+  // Pages lay the shared map out differently, so nudge Google to re-measure.
+  // MapView also watches its own box, this just makes the change prompt.
   useEffect(() => {
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
     return () => clearTimeout(t);
-  }, [tab]);
+  }, [page]);
 
   const flash = (msg) => {
     setNotice(msg);
@@ -178,69 +196,69 @@ export default function App() {
   if (booting) return null;
   if (!unlocked) return <LockScreen onUnlocked={() => setUnlocked(true)} />;
 
+  const go = (p) => {
+    setPage(p);
+    window.scrollTo({ top: 0 });
+  };
+  // The map is only meaningful on pages that show locations.
+  const mapPages = ['patients', 'add', 'plan'];
+  const showMap = mapPages.includes(page);
+
   return (
     <div className="app">
       <header className="topbar">
-        <h1>SmartMaps</h1>
-        <span className="tagline">Visit planner</span>
-        <nav className="tabs">
-          <button className={tab === 'patients' ? 'tab active' : 'tab'} onClick={() => setTab('patients')}>
-            Patients
-          </button>
-          <button className={tab === 'plan' ? 'tab active' : 'tab'} onClick={() => setTab('plan')}>
-            Plan Week
-          </button>
-          {hasPasscode && (
-            <button className="tab" onClick={lock} title="Lock the app">🔒 Lock</button>
-          )}
-        </nav>
+        <h1 onClick={() => go('home')} role="button" tabIndex={0}>SmartMaps</h1>
+        <span className="tagline">{PAGE_TITLES[page]}</span>
+        {hasPasscode && (
+          <button className="lock-btn" onClick={lock} title="Lock the app">🔒</button>
+        )}
       </header>
 
       {loadError && <div className="banner error">{loadError}</div>}
       {notice && <div className="banner notice">{notice}</div>}
-      {!geocodingEnabled && !loadError && (
+      {!geocodingEnabled && !loadError && page !== 'home' && page !== 'settings' && (
         <div className="banner warn">
-          Add your Google Maps key in <strong>Settings</strong> to place addresses on the map and plan routes.
+          Add your Google Maps key in <strong>Settings</strong> to place addresses on the map.
         </div>
       )}
 
-      {/* Both tabs render inside ONE <main> and share a single MapView. Swapping
-          tabs only toggles visibility, so the Google map is never unmounted and
-          rebuilt — each rebuild would be a billable map load. */}
-      <main className={tab === 'patients' ? 'layout' : 'layout layout-plan'}>
-        <section className="col col-form" hidden={tab !== 'patients'}>
-            <PatientForm
-              patient={editing}
-              onSave={handleSave}
-              onCancel={() => setEditing(null)}
-              defaultCadence={settings?.default_cadence_days || 60}
-            />
-          </section>
+      {/* Every page renders inside ONE <main> and the pages that need a map share
+          a single MapView. Switching pages only toggles visibility, so the Google
+          map is never unmounted and rebuilt — each rebuild is a billable load. */}
+      <main className={`page page-${page}`}>
+        <section className="pane" hidden={page !== 'home'}>
+          <HomeScreen
+            patients={patients}
+            settings={settings}
+            geocodingEnabled={geocodingEnabled}
+            onGo={go}
+          />
+        </section>
 
-        <section className="col col-list" hidden={tab !== 'patients'}>
-            <SettingsPanel
-              settings={settings}
-              onSaved={handleSettingsSaved}
-              onImported={refresh}
-              onExport={handleExport}
-              onImportBackup={handleImport}
-              onClearAll={handleClearAll}
-              hasPasscode={hasPasscode}
-              onPasscodeChanged={() => setHasPasscode(api.hasPasscode())}
-            />
-            <PatientList
-              patients={patients}
-              selectedId={selectedId}
-              geocodingEnabled={geocodingEnabled}
-              onEdit={(p) => setEditing(p)}
-              onDelete={handleDelete}
-              onGeocode={handleGeocode}
-              onLogVisit={handleLogVisit}
-              onSelect={(p) => setSelectedId(p.id)}
-            />
-          </section>
+        <section className="pane" hidden={page !== 'add'}>
+          <PatientForm
+            patient={editing}
+            onSave={handleSave}
+            onCancel={() => { setEditing(null); go('patients'); }}
+            defaultCadence={settings?.default_cadence_days || 60}
+          />
+          <ImportPatients onImported={refresh} />
+        </section>
 
-        <section className="col col-plan" hidden={tab !== 'plan'}>
+        <section className="pane" hidden={page !== 'patients'}>
+          <PatientList
+            patients={patients}
+            selectedId={selectedId}
+            geocodingEnabled={geocodingEnabled}
+            onEdit={(p) => { setEditing(p); go('add'); }}
+            onDelete={handleDelete}
+            onGeocode={handleGeocode}
+            onLogVisit={handleLogVisit}
+            onSelect={(p) => setSelectedId(p.id)}
+          />
+        </section>
+
+        <section className="pane" hidden={page !== 'plan'}>
           <WorkloadView onChanged={refresh} />
           <WeekPlanner
             plan={plan}
@@ -251,16 +269,41 @@ export default function App() {
           />
         </section>
 
-        <section className="col col-map">
+        <section className="pane" hidden={page !== 'settings'}>
+          <SettingsPanel
+            settings={settings}
+            onSaved={handleSettingsSaved}
+            onExport={handleExport}
+            onImportBackup={handleImport}
+            onClearAll={handleClearAll}
+            hasPasscode={hasPasscode}
+            onPasscodeChanged={() => setHasPasscode(api.hasPasscode())}
+          />
+        </section>
+
+        <section className="pane pane-map" hidden={!showMap}>
           <MapView
             patients={patients}
-            selectedId={tab === 'patients' ? selectedId : null}
-            groups={tab === 'plan' ? planGroups : null}
+            selectedId={page === 'plan' ? null : selectedId}
+            groups={page === 'plan' ? planGroups : null}
             apiKey={mapsKey}
-            onSelect={(p) => tab === 'patients' && setSelectedId(p.id)}
+            onSelect={(p) => page !== 'plan' && setSelectedId(p.id)}
           />
         </section>
       </main>
+
+      <nav className="bottom-nav">
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            className={page === n.id ? 'nav-item active' : 'nav-item'}
+            onClick={() => go(n.id)}
+          >
+            <span className="nav-icon">{n.icon}</span>
+            <span className="nav-label">{n.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

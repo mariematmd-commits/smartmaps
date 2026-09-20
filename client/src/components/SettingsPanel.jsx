@@ -4,26 +4,21 @@ import { storageStatus, formatBytes, canChooseLocation } from '../lib/storage.js
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// Collapsible settings: work days, home base, daily cap, key/email, CSV import,
-// and data & security (backup / passcode / erase).
+// The Settings page: work days, home base, daily cap, key/email, and data &
+// security (backup / passcode / erase). Patient import lives next to "Add
+// patient" instead — importing a caseload is a task, not a configuration step.
 export default function SettingsPanel({
   settings,
   onSaved,
-  onImported,
   onExport,
   onImportBackup,
   onClearAll,
   hasPasscode,
   onPasscodeChanged,
 }) {
-  const [open, setOpen] = useState(false);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [csvText, setCsvText] = useState('');
-  const [csvName, setCsvName] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importMsg, setImportMsg] = useState('');
   // passcode sub-form
   const [pcOpen, setPcOpen] = useState(false);
   const [p1, setP1] = useState('');
@@ -33,8 +28,8 @@ export default function SettingsPanel({
   const [storage, setStorage] = useState(null);
 
   useEffect(() => {
-    if (open) storageStatus().then(setStorage);
-  }, [open]);
+    storageStatus().then(setStorage);
+  }, []);
 
   useEffect(() => {
     if (settings) {
@@ -108,52 +103,9 @@ export default function SettingsPanel({
     }
   }
 
-  function onCsvFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setCsvName(file.name);
-    setImportMsg('');
-    const reader = new FileReader();
-    reader.onload = () => setCsvText(String(reader.result || ''));
-    reader.readAsText(file);
-  }
-
-  async function importCsv() {
-    if (!csvText) {
-      setImportMsg('Choose a CSV file first.');
-      return;
-    }
-    setImporting(true);
-    setImportMsg('');
-    try {
-      const r = await api.importCsv(csvText);
-      let m = `Imported ${r.imported}`;
-      if (r.geocoded) {
-        m += ` — ${r.located} located`;
-        if (r.failed) m += `, ${r.failed} couldn't be located`;
-      } else {
-        m += ' (add a Google key to place them on the map)';
-      }
-      if (r.skipped) m += `, ${r.skipped} skipped`;
-      setImportMsg(`${m}.`);
-      setCsvText('');
-      setCsvName('');
-      onImported?.();
-    } catch (err) {
-      setImportMsg(err.message);
-    } finally {
-      setImporting(false);
-    }
-  }
 
   return (
     <div className="card settings">
-      <button className="settings-header" onClick={() => setOpen((o) => !o)}>
-        <span>⚙ Settings</span>
-        <span className="chevron">{open ? '▾' : '▸'}</span>
-      </button>
-
-      {open && (
         <div className="settings-body">
           <label className="field">
             <span className="field-label">Google Maps API key</span>
@@ -238,22 +190,6 @@ export default function SettingsPanel({
               {saving ? 'Saving…' : 'Save settings'}
             </button>
             {msg && <span className="save-msg">{msg}</span>}
-          </div>
-
-          <div className="import-section">
-            <span className="field-label">Import patients (CSV)</span>
-            <div className="import-controls">
-              <input type="file" accept=".csv,text/csv" onChange={onCsvFile} disabled={importing} />
-              <button onClick={importCsv} disabled={importing || !csvText}>
-                {importing ? 'Importing…' : 'Import'}
-              </button>
-            </div>
-            {csvName && !importMsg && <span className="field-hint">Selected: {csvName}</span>}
-            {importMsg && <span className="field-hint">{importMsg}</span>}
-            <span className="field-hint">
-              Columns: <strong>name</strong> (required), address, phone, email, visit_minutes,
-              cadence_days, due_by. Addresses are located on import (may take a moment for large files).
-            </span>
           </div>
 
           <div className="import-section">
@@ -353,7 +289,6 @@ export default function SettingsPanel({
             {pcMsg && <span className="field-hint">{pcMsg}</span>}
           </div>
         </div>
-      )}
     </div>
   );
 }

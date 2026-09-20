@@ -50,15 +50,8 @@ body {
 .topbar h1 { margin: 0; font-size: 1.35rem; color: var(--primary); }
 .tagline { color: var(--muted); font-size: 0.9rem; }
 
-.tabs { margin-left: auto; display: flex; gap: 0.4rem; }
-.tab {
-  padding: 0.45rem 0.9rem; border: 1px solid var(--border); background: #fff;
-  border-radius: 6px; font-size: 0.9rem; color: var(--muted); cursor: pointer;
-}
-.tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-.layout.layout-plan { grid-template-columns: 440px 1fr; }
-.col-plan { overflow-y: auto; max-height: calc(100vh - 130px); }
+.col-plan { min-width: 0; }
 
 /* Workload view */
 .workload { margin-bottom: 1rem; padding: 0; overflow: hidden; }
@@ -200,19 +193,10 @@ body {
 .banner.warn { background: var(--warn-bg); border-bottom-color: var(--warn-border); color: #9a3412; }
 .banner code, .map-placeholder code { background: rgba(0,0,0,0.06); padding: 0 4px; border-radius: 4px; }
 
-.layout {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 340px 340px 1fr;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
-  min-height: 0;
-}
-
 .col { min-width: 0; display: flex; flex-direction: column; }
 /* Author styles beat the UA sheet's [hidden] rule, so say it explicitly —
-   hidden columns must leave the grid entirely or they'd still take a track. */
-.col[hidden] { display: none; }
+   a hidden pane must leave the layout entirely or it still takes a track. */
+.col[hidden], .pane[hidden] { display: none; }
 
 .card {
   background: var(--card);
@@ -373,15 +357,144 @@ a.button.primary:hover { background: var(--primary-dark); }
 .empty { color: var(--muted); }
 
 /* Map */
-.col-map { min-height: 400px; }
 .map, .map-placeholder { flex: 1; border-radius: 10px; min-height: 400px; }
 .map { border: 1px solid var(--border); box-shadow: var(--shadow); }
 .map-placeholder { display: flex; flex-direction: column; }
 .map-placeholder p { color: var(--muted); }
 
-/* Responsive: stack on narrow screens (phone) */
-@media (max-width: 960px) {
-  .layout { grid-template-columns: 1fr; }
-  .col-map { min-height: 320px; }
-  .map, .map-placeholder { min-height: 320px; }
+/* ---- Page model -------------------------------------------------------- */
+/* Mobile first: one column, nothing side by side, never a sideways scroll.
+   Wide screens get the map beside the content instead of beneath it. */
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  padding-bottom: 5.5rem;     /* clear the fixed bottom nav */
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;         /* belt and braces: never scroll sideways */
 }
+.pane { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.pane[hidden] { display: none; }
+.pane-map { min-height: 340px; }
+.pane-map .map, .pane-map .map-placeholder { min-height: 340px; }
+
+@media (min-width: 900px) {
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    align-items: start;
+    padding: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+  /* A page with no map lets its content span both columns. */
+  .page-home, .page-settings { grid-template-columns: minmax(0, 1fr); }
+  .page-home .pane, .page-settings .pane { max-width: 56rem; }
+  .pane-map { position: sticky; top: 1.25rem; height: calc(100vh - 8rem); }
+  .pane-map .map, .pane-map .map-placeholder { min-height: 0; height: 100%; }
+}
+
+/* ---- Bottom navigation -------------------------------------------------- */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; justify-content: space-around;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding: 0.3rem 0.2rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -1px 6px rgba(0,0,0,0.05);
+}
+.nav-item {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  padding: 0.4rem 0.2rem;
+  background: none; border: 0; cursor: pointer;
+  color: var(--muted); font-size: 0.7rem;
+  border-radius: 8px;
+}
+.nav-item.active { color: var(--primary); background: #eff4ff; }
+.nav-icon { font-size: 1.15rem; line-height: 1; }
+.nav-label { white-space: nowrap; }
+
+@media (min-width: 900px) {
+  .bottom-nav {
+    position: static; justify-content: flex-start; gap: 0.3rem;
+    border-top: 0; border-bottom: 1px solid var(--border);
+    order: -1; padding: 0.4rem 1.25rem; box-shadow: none;
+  }
+  .nav-item { flex: 0 0 auto; flex-direction: row; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.9rem; }
+}
+
+/* ---- Home --------------------------------------------------------------- */
+.home { display: flex; flex-direction: column; gap: 1rem; }
+.home-date { color: var(--muted); margin: -0.4rem 0 0.6rem; }
+.home-stats { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; }
+.stat-num { font-size: 1.75rem; font-weight: 700; color: var(--primary); line-height: 1.1; }
+.stat.warn .stat-num { color: var(--danger); }
+.stat-label { font-size: 0.8rem; color: var(--muted); }
+.home-alert {
+  margin-top: 0.8rem; width: 100%; text-align: left;
+  background: var(--warn-bg); border: 1px solid var(--warn-border); color: #9a3412;
+  border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.85rem; cursor: pointer;
+}
+.home-actions { display: flex; flex-direction: column; gap: 0.6rem; }
+.home-action {
+  display: flex; align-items: center; gap: 0.85rem; width: 100%; text-align: left;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.9rem 1rem; cursor: pointer; box-shadow: var(--shadow);
+}
+.home-action:hover { border-color: var(--primary); }
+.ha-icon { font-size: 1.4rem; }
+.ha-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ha-text strong { font-size: 0.98rem; }
+.ha-text small { color: var(--muted); font-size: 0.8rem; }
+.ha-arrow { color: var(--muted); }
+.intro-replay {
+  align-self: center; background: none; border: 0; color: var(--muted);
+  font-size: 0.8rem; text-decoration: underline; cursor: pointer; padding: 0.5rem;
+}
+
+/* ---- Intro -------------------------------------------------------------- */
+.intro-card { max-width: 34rem; margin: 0 auto; }
+.intro-lead { color: var(--text); }
+.intro-steps { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.intro-steps li { font-size: 0.9rem; }
+.intro-steps strong { display: block; }
+.intro-privacy {
+  background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
+  border-radius: 8px; padding: 0.7rem 0.8rem; font-size: 0.85rem;
+}
+.intro-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* ---- Import + list tools ------------------------------------------------ */
+.card-toggle {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  background: none; border: 0; padding: 0.25rem 0; font-size: 0.95rem;
+  font-weight: 600; color: var(--text); cursor: pointer;
+}
+.import-body { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; }
+.import-result { color: var(--text); font-weight: 600; }
+.import-help summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.csv-sample {
+  background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.6rem; font-size: 0.72rem; overflow-x: auto; white-space: pre;
+}
+.list-tools { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.list-search {
+  flex: 1; min-width: 10rem; padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem;
+}
+.filter-chip {
+  padding: 0.45rem 0.7rem; border: 1px solid var(--border); background: #fff;
+  border-radius: 999px; font-size: 0.8rem; color: var(--muted); cursor: pointer;
+}
+.filter-chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.lock-btn {
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.3rem 0.5rem; cursor: pointer; font-size: 0.95rem;
+}
+.topbar h1 { cursor: pointer; }
