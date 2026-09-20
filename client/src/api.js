@@ -329,14 +329,19 @@ export const api = {
       patients: DATA.patients,
     });
   },
-  async commitPlan(weekStart) {
+  // `days` is the arrangement actually on screen, which may differ from a fresh
+  // build because she dragged people between days. When given, it wins —
+  // recomputing here would silently throw her changes away.
+  async commitPlan(weekStart, days = null) {
     ensure();
-    const plan = planWeek({
-      weekStart,
-      maxPerDay: DATA.settings.max_per_day,
-      workDays: DATA.settings.work_days,
-      patients: DATA.patients,
-    });
+    const plan = Array.isArray(days)
+      ? { weekStart, weekEnd: addDaysStr(weekStart, 6), days }
+      : planWeek({
+          weekStart,
+          maxPerDay: DATA.settings.max_per_day,
+          workDays: DATA.settings.work_days,
+          patients: DATA.patients,
+        });
     if (plan.error) throw new Error(plan.error);
     const already = new Set(
       DATA.visits.filter((v) => v.date >= plan.weekStart && v.date <= plan.weekEnd).map((v) => v.patient_id)

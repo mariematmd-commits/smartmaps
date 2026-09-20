@@ -31,6 +31,9 @@ export function activeDays(plan) {
 
 export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = '', apiKey = '' }) {
   const [weekStart, setWeekStart] = useState(nextMonday);
+  const [dragging, setDragging] = useState(null);   // { patientId, from }
+  const [dropTarget, setDropTarget] = useState(null);
+  const [moveOpen, setMoveOpen] = useState(null);   // patient id whose day picker is open
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [committed, setCommitted] = useState(false);
@@ -54,6 +57,27 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
     }
   }
 
+  // Reassign a patient to a different day in the proposal. The plan is still
+  // just a suggestion at this point, so this only edits what's on screen —
+  // "Save & start calling" is what writes it down.
+  function movePatient(patientId, fromDate, toDate) {
+    if (!plan || fromDate === toDate) return;
+    const next = {
+      ...plan,
+      days: plan.days.map((d) => ({ ...d, patients: [...d.patients] })),
+    };
+    const from = next.days.find((d) => d.date === fromDate);
+    const to = next.days.find((d) => d.date === toDate);
+    if (!from || !to) return;
+    const idx = from.patients.findIndex((p) => p.id === patientId);
+    if (idx < 0) return;
+    const [moved] = from.patients.splice(idx, 1);
+    // Keep each day most-urgent-first, the order the builder uses.
+    to.patients.push(moved);
+    to.patients.sort((a, b) => (a.due_by || '').localeCompare(b.due_by || ''));
+    onPlan(next);
+  }
+
   async function reloadVisits() {
     if (!plan) return;
     setVisits(await api.listVisits(plan.weekStart, plan.weekEnd));
@@ -63,7 +87,8 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
     setBusy(true);
     setError('');
     try {
-      await api.commitPlan(plan.weekStart);
+      // Send the days as shown so any moves she made are what gets written.
+      await api.commitPlan(plan.weekStart, plan.days);
       const v = await api.listVisits(plan.weekStart, plan.weekEnd);
       setVisits(v);
       // Land on the first day that actually has patients.
@@ -135,28 +160,94 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
             )}
           </div>
 
-          {days.map((day, i) => (
-            <div className="card day-card" key={day.date}>
+          <p className="field-hint drag-hint">
+            Not happy with a day? Drag a patient onto another one — or use the <strong>Move</strong>
+            {' '}button, which also works on a phone. Nothing is saved until you start calling.
+          </p>
+
+          {/* Every work day is shown, not only the ones with patients, so an
+              empty day is still somewhere you can drop someone. */}
+          {(plan.days || []).map((day, i) => (
+            <div
+              className={`card day-card${dropTarget === day.date ? ' drop-over' : ''}`}
+              key={day.date}
+              onDragOver={(e) => {
+                if (!dragging) return;
+                e.preventDefault();
+                setDropTarget(day.date);
+              }}
+              onDragLeave={() => setDropTarget((t) => (t === day.date ? null : t))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragging) movePatient(dragging.patientId, dragging.from, day.date);
+                setDragging(null);
+                setDropTarget(null);
+              }}
+            >
               <div className="day-head" style={{ borderLeftColor: dayColor(i) }}>
                 <span className="day-dot" style={{ background: dayColor(i) }} />
                 <strong>{day.label}</strong>
                 <span className="day-date">{formatDate(day.date)}</span>
-                <span className="day-count">{day.patients.length} to call</span>
+                <span className="day-count">
+                  {day.patients.length ? `${day.patients.length} to call` : 'empty'}
+                </span>
               </div>
               <ul className="call-list">
                 {day.patients.map((p) => {
                   const due = dueStatus(p.due_by);
                   return (
-                    <li key={p.id}>
+                    <li
+                      key={p.id}
+                      className={`draggable${dragging?.patientId === p.id ? ' dragging' : ''}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragging({ patientId: p.id, from: day.date });
+                        e.dataTransfer.effectAllowed = 'move';
+                        // Firefox refuses to start a drag without payload.
+                        e.dataTransfer.setData('text/plain', String(p.id));
+                      }}
+                      onDragEnd={() => {
+                        setDragging(null);
+                        setDropTarget(null);
+                      }}
+                    >
                       <div className="call-main">
+                        <span className="drag-grip" title="Drag to another day">⠿</span>
                         <span className="call-name">{p.name}</span>
                         <span className={`due-badge ${due.level}`}>{due.label}</span>
                       </div>
                       {p.address && <div className="call-sub">{p.address}</div>}
                       {p.phone && <a className="call-phone" href={`tel:${p.phone}`}>📞 {p.phone}</a>}
+
+                      {moveOpen === p.id ? (
+                        <div className="move-row">
+                          {(plan.days || [])
+                            .filter((d) => d.date !== day.date)
+                            .map((d) => (
+                              <button
+                                key={d.date}
+                                className="seg"
+                                onClick={() => {
+                                  movePatient(p.id, day.date, d.date);
+                                  setMoveOpen(null);
+                                }}
+                              >
+                                {d.label}
+                              </button>
+                            ))}
+                          <button className="seg" onClick={() => setMoveOpen(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button className="move-btn" onClick={() => setMoveOpen(p.id)}>
+                          Move →
+                        </button>
+                      )}
                     </li>
                   );
                 })}
+                {day.patients.length === 0 && (
+                  <li className="empty-day">Drop a patient here to move them to {day.label}.</li>
+                )}
               </ul>
             </div>
           ))}
@@ -202,6 +293,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
               patients={patients}
               homeBase={homeBase}
               apiKey={apiKey}
+              weekDays={(plan?.days || []).map((d) => ({ date: d.date, label: d.label }))}
               onChange={reloadVisits}
             />
           )}

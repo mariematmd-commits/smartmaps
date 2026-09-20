@@ -35,11 +35,62 @@ const fmtTime = (t) => {
 
 // The Confirm / window / not-available / later controls, shared by the
 // suggestion card and the "others" list.
-function CallActions({ visit, defaultTime, onConfirm, onDecline, onLater, busy }) {
+function CallActions({ visit, defaultTime, onConfirm, onDecline, onLater, onMoveToDay, weekDays = [], today, busy }) {
   const [time, setTime] = useState(defaultTime || '');
   const [showWin, setShowWin] = useState(!!(visit.win_start || visit.win_end));
   const [ws, setWs] = useState(visit.win_start || '');
   const [we, setWe] = useState(visit.win_end || '');
+  // "Not today" nearly always ends with her agreeing another day on the same
+  // call, so offer the week straight away instead of just declining.
+  const [pickDay, setPickDay] = useState(false);
+  const [dayChoice, setDayChoice] = useState('');
+  const [dayTime, setDayTime] = useState('');
+  const otherDays = weekDays.filter((d) => d.date !== today);
+
+  if (pickDay) {
+    return (
+      <div className="call-actions-box">
+        <p className="ca-prompt">Which day did they say they’re free?</p>
+        <div className="day-choice">
+          {otherDays.map((d) => (
+            <button
+              key={d.date}
+              className={dayChoice === d.date ? 'seg on' : 'seg'}
+              disabled={busy}
+              onClick={() => setDayChoice(d.date)}
+            >
+              {d.label} {d.date.slice(5).replace('-', '/')}
+            </button>
+          ))}
+        </div>
+        <div className="ca-row">
+          <label className="ca-time">
+            Time they agreed{' '}
+            <input type="time" value={dayTime} onChange={(e) => setDayTime(e.target.value)} />
+          </label>
+          <span className="field-hint">Leave blank to just move them to that day.</span>
+        </div>
+        <div className="ca-row">
+          <button
+            className="seg on"
+            disabled={busy || !dayChoice}
+            onClick={() => onMoveToDay(visit.id, dayChoice, dayTime)}
+          >
+            {dayChoice
+              ? `Book ${otherDays.find((d) => d.date === dayChoice)?.label}${dayTime ? ` · ${fmtTime(dayTime)}` : ''}`
+              : 'Pick a day'}
+          </button>
+          <button className="seg danger" disabled={busy} onClick={() => onDecline(visit.id)}>
+            Not free any day this week
+          </button>
+          <button className="seg" disabled={busy} onClick={() => setPickDay(false)}>
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="call-actions-box">
       <div className="ca-row">
@@ -62,7 +113,11 @@ function CallActions({ visit, defaultTime, onConfirm, onDecline, onLater, busy }
         <button className="seg on" disabled={busy} onClick={() => onConfirm(visit.id, time, ws, we)}>
           Confirm{time ? ` · ${fmtTime(time)}` : ''}
         </button>
-        <button className="seg danger" disabled={busy} onClick={() => onDecline(visit.id)}>
+        <button
+          className="seg danger"
+          disabled={busy}
+          onClick={() => (otherDays.length ? setPickDay(true) : onDecline(visit.id))}
+        >
           Not available today
         </button>
         <button className="seg" disabled={busy} onClick={() => onLater(visit.id)}>
@@ -73,7 +128,7 @@ function CallActions({ visit, defaultTime, onConfirm, onDecline, onLater, busy }
   );
 }
 
-export default function DayPlanner({ date, patients = [], homeBase = '', apiKey = '', onChange }) {
+export default function DayPlanner({ date, patients = [], homeBase = '', apiKey = '', weekDays = [], onChange }) {
   const [state, setState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -189,6 +244,16 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
       })
     );
   const decline = (id) => act(() => api.updateVisit(id, { status: 'declined' }));
+  // She agreed another day on the call: move the visit there. With a time it's
+  // booked; without one it goes back in that day's pool to be timed later.
+  const moveToDay = (id, newDate, time) =>
+    act(() =>
+      api.updateVisit(id, {
+        date: newDate,
+        status: time ? 'confirmed' : 'proposed',
+        slot_time: time || null,
+      })
+    );
   const later = (id) => act(() => api.updateVisit(id, { status: 'callback' }));
   const remove = (id) => act(() => api.deleteVisit(id));
   const addManual = (pid, emg) =>
@@ -319,6 +384,9 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
             onConfirm={confirm}
             onDecline={decline}
             onLater={later}
+            onMoveToDay={moveToDay}
+            weekDays={weekDays}
+            today={date}
             busy={busy}
           />
         </div>
@@ -357,6 +425,9 @@ export default function DayPlanner({ date, patients = [], homeBase = '', apiKey 
                       onConfirm={confirm}
                       onDecline={decline}
                       onLater={later}
+                      onMoveToDay={moveToDay}
+                      weekDays={weekDays}
+                      today={date}
                       busy={busy}
                     />
                   ) : (

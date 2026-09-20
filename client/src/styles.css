@@ -482,6 +482,26 @@ a.button.primary:hover { background: var(--primary-dark); }
   background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
   padding: 0.6rem; font-size: 0.72rem; overflow-x: auto; white-space: pre;
 }
+/* Drag a patient to another day in the proposal */
+.drag-hint { margin: 0 0 0.2rem; }
+.call-list li.draggable { cursor: grab; }
+.call-list li.draggable:active { cursor: grabbing; }
+.call-list li.dragging { opacity: 0.45; }
+.drag-grip { color: var(--muted); font-size: 0.9rem; letter-spacing: -1px; margin-right: 0.15rem; cursor: grab; }
+.day-card.drop-over { outline: 2px dashed var(--primary); outline-offset: 2px; background: #eff4ff; }
+.empty-day { color: var(--muted); font-size: 0.82rem; font-style: italic; padding: 0.6rem 0 !important; }
+.move-btn {
+  margin-top: 0.35rem; padding: 0.2rem 0.5rem; font-size: 0.75rem;
+  border: 1px solid var(--border); background: #fff; border-radius: 6px;
+  color: var(--muted); cursor: pointer;
+}
+.move-btn:hover { border-color: var(--primary); color: var(--primary); }
+.move-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.4rem; }
+
+/* Rescheduling during a call */
+.ca-prompt { margin: 0 0 0.4rem; font-size: 0.88rem; font-weight: 600; }
+.day-choice { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
+
 .dupe-banner {
   display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
   margin: 0 0 0.7rem; padding: 0.65rem 0.75rem;
