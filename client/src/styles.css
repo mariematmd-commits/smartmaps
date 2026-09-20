@@ -496,6 +496,17 @@ a.button.primary:hover { background: var(--primary-dark); }
   cursor: grab; touch-action: none; user-select: none; border-radius: 6px;
 }
 .drag-grip:active { cursor: grabbing; background: #eff4ff; color: var(--primary); }
+.rebalance-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem;
+  padding: 0.7rem 0.8rem; margin-bottom: 0.2rem;
+  background: #eff4ff; border: 1px solid #bfdbfe; border-radius: 8px;
+  font-size: 0.84rem;
+}
+.rebalance-bar > span:first-child { flex: 1; min-width: 11rem; }
+.rebalance-bar button { flex: none; }
+.rebalance-note { flex-basis: 100%; }
+.rebalance-done { color: #166534 !important; background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+
 .drop-bar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 90;
   background: var(--card); border-bottom: 2px solid var(--primary);

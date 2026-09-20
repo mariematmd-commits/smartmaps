@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { dueStatus, formatDate } from '../format.js';
+import { rebalanceFrom } from '../lib/rebalance.js';
 import { dayColor } from '../dayColors.js';
 import DayPlanner from './DayPlanner.jsx';
 
@@ -40,6 +41,9 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
   const dragRef = useRef(null);                     // live copy for the window listeners
   const ghostRef = useRef(null);                    // moved directly, not through React
   const autoScroll = useRef(0);
+  const [movedIds, setMovedIds] = useState(() => new Set()); // placed by hand — never re-spread
+  const [pivot, setPivot] = useState(null);         // earliest day a move touched
+  const [rebalanced, setRebalanced] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [committed, setCommitted] = useState(false);
@@ -147,8 +151,50 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
   // Reassign a patient to a different day in the proposal. The plan is still
   // just a suggestion at this point, so this only edits what's on screen —
   // "Save & start calling" is what writes it down.
+  // Re-spread the days from the change onward, keeping anyone she has moved by
+  // hand or already spoken to exactly where they are.
+  async function rebalance() {
+    if (!plan || !pivot) return;
+    setBusy(true);
+    setError('');
+    try {
+      let spokenFor = new Set();
+      try {
+        const vs = await api.listVisits(plan.weekStart, plan.weekEnd);
+        spokenFor = new Set(vs.filter((v) => v.status !== 'proposed').map((v) => v.patient_id));
+      } catch {
+        /* nothing committed yet — nobody has been called */
+      }
+      const pinnedIds = new Set([...movedIds, ...spokenFor]);
+      const { days: next, moved } = rebalanceFrom({
+        days: plan.days,
+        pivotDate: pivot,
+        pinnedIds,
+        maxPerDay: plan.maxPerDay || 8,
+      });
+      onPlan({ ...plan, days: next });
+      setRebalanced(
+        moved
+          ? `Re-spread ${moved} patient${moved === 1 ? '' : 's'} across the rest of the week.`
+          : 'Nothing needed moving — the rest of the week already fits.'
+      );
+      setTimeout(() => setRebalanced(''), 5000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function movePatient(patientId, fromDate, toDate) {
     if (!plan || fromDate === toDate) return;
+    // Remember who she placed by hand, and how far back the change reaches.
+    setMovedIds((s) => new Set(s).add(patientId));
+    setPivot((p) => {
+      const earliest = fromDate < toDate ? fromDate : toDate;
+      return !p || earliest < p ? earliest : p;
+    });
+    setRebalanced('');
     const next = {
       ...plan,
       days: plan.days.map((d) => ({ ...d, patients: [...d.patients] })),
@@ -252,6 +298,23 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
             another day — on a phone or a laptop. The <strong>Move</strong> button does the same if
             you prefer tapping. Nothing is saved until you start calling.
           </p>
+
+          {pivot && (
+            <div className="rebalance-bar">
+              <span>
+                You’ve moved {movedIds.size} patient{movedIds.size === 1 ? '' : 's'}. Want the rest
+                of the week re-spread around {movedIds.size === 1 ? 'them' : 'those changes'}?
+              </span>
+              <button className="primary" onClick={rebalance} disabled={busy}>
+                {busy ? 'Working…' : 'Re-fit the rest of the week'}
+              </button>
+              <span className="field-hint rebalance-note">
+                Days before {formatDate(pivot)} are left alone, and so is anyone you’ve moved by
+                hand or already spoken to.
+              </span>
+            </div>
+          )}
+          {rebalanced && <p className="notice-line rebalance-done">{rebalanced}</p>}
 
           {/* While dragging, every day is reachable without scrolling: this bar
               stays pinned at the top, so the target is never off-screen. */}
