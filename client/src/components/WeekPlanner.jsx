@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { dueStatus, formatDate } from '../format.js';
 import { dayColor } from '../dayColors.js';
@@ -31,9 +31,15 @@ export function activeDays(plan) {
 
 export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = '', apiKey = '' }) {
   const [weekStart, setWeekStart] = useState(nextMonday);
-  const [dragging, setDragging] = useState(null);   // { patientId, from }
+  // Pointer-based dragging, so a finger works exactly like a mouse. HTML5
+  // drag-and-drop fires no events on touch at all, which left the phone with
+  // only the Move button.
+  const [dragging, setDragging] = useState(null);   // { patientId, from, name } — set once
   const [dropTarget, setDropTarget] = useState(null);
   const [moveOpen, setMoveOpen] = useState(null);   // patient id whose day picker is open
+  const dragRef = useRef(null);                     // live copy for the window listeners
+  const ghostRef = useRef(null);                    // moved directly, not through React
+  const autoScroll = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [committed, setCommitted] = useState(false);
@@ -56,6 +62,87 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
       setBusy(false);
     }
   }
+
+  // Which day is under the finger right now. elementsFromPoint (plural) is used
+  // so the fixed bottom navigation — which sits exactly where a finger ends up
+  // when dragging downwards — doesn't mask the day card beneath it.
+  const dayUnder = (x, y) => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      // The pinned bar wins, since it sits over the page by design.
+      const slot = el.closest?.('.drop-slot');
+      if (slot) return slot.dataset.date;
+      const card = el.closest?.('.day-card');
+      if (card) return card.dataset.date;
+    }
+    return null;
+  };
+
+  function startDrag(e, patientId, fromDate, name) {
+    if (e.button != null && e.button !== 0) return; // ignore right-click
+    e.preventDefault();
+    dragRef.current = { patientId, from: fromDate, name, x: e.clientX, y: e.clientY };
+    setDragging({ patientId, from: fromDate, name });
+    setDropTarget(fromDate);
+    setMoveOpen(null);
+  }
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const onMove = (e) => {
+      const x = e.clientX;
+      const y = e.clientY;
+      dragRef.current = { ...dragRef.current, x, y };
+      // Move the floating card by touching the DOM directly. Doing this through
+      // state would re-render every day and every patient on each pointer
+      // event, which is enough to make the drag stutter.
+      const ghost = ghostRef.current;
+      if (ghost) ghost.style.transform = `translate(${x}px, ${y}px) translate(-50%, -140%)`;
+      // Only a change of day is worth a render.
+      const over = dayUnder(x, y);
+      setDropTarget((prev) => (prev === over ? prev : over));
+      // Days can sit off-screen on a phone, so creep the page when she drags
+      // towards an edge instead of stranding her mid-gesture.
+      // Reach further up from the bottom than the top, because the fixed nav
+      // eats the last ~60px there. Speed scales with how close to the edge she is.
+      const TOP_EDGE = 90;
+      const BOTTOM_EDGE = 150;
+      const h = window.innerHeight;
+      if (y < TOP_EDGE) autoScroll.current = -Math.ceil(((TOP_EDGE - y) / TOP_EDGE) * 28);
+      else if (y > h - BOTTOM_EDGE) autoScroll.current = Math.ceil(((y - (h - BOTTOM_EDGE)) / BOTTOM_EDGE) * 28);
+      else autoScroll.current = 0;
+    };
+
+    const finish = () => {
+      const d = dragRef.current;
+      const target = d ? dayUnder(d.x, d.y) : null;
+      if (d && target && target !== d.from) movePatient(d.patientId, d.from, target);
+      dragRef.current = null;
+      autoScroll.current = 0;
+      setDragging(null);
+      setDropTarget(null);
+    };
+
+    const timer = setInterval(() => {
+      if (!autoScroll.current) return;
+      const before = window.scrollY;
+      window.scrollBy(0, autoScroll.current);
+      if (window.scrollY === before) return; // already at the end of the page
+      // The page moved under a stationary finger, so re-check what's beneath it.
+      const d = dragRef.current;
+      if (d) setDropTarget((prev) => { const o = dayUnder(d.x, d.y); return prev === o ? prev : o; });
+    }, 30);
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+    };
+  }, [dragging?.patientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reassign a patient to a different day in the proposal. The plan is still
   // just a suggestion at this point, so this only edits what's on screen —
@@ -161,28 +248,42 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
           </div>
 
           <p className="field-hint drag-hint">
-            Not happy with a day? Drag a patient onto another one — or use the <strong>Move</strong>
-            {' '}button, which also works on a phone. Nothing is saved until you start calling.
+            Not happy with a day? Press the <strong>⠿</strong> handle and drag a patient onto
+            another day — on a phone or a laptop. The <strong>Move</strong> button does the same if
+            you prefer tapping. Nothing is saved until you start calling.
           </p>
+
+          {/* While dragging, every day is reachable without scrolling: this bar
+              stays pinned at the top, so the target is never off-screen. */}
+          {dragging && (
+            <>
+              <div className="drop-bar" aria-hidden="true">
+                <span className="drop-bar-label">Drop {dragging.name} on…</span>
+                <div className="drop-bar-days">
+                  {(plan.days || []).map((d) => (
+                    <span
+                      key={d.date}
+                      data-date={d.date}
+                      className={`drop-slot${dropTarget === d.date ? ' on' : ''}${d.date === dragging.from ? ' current' : ''}`}
+                    >
+                      {d.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div ref={ghostRef} className="drag-ghost" aria-hidden="true">
+                {dragging.name}
+              </div>
+            </>
+          )}
 
           {/* Every work day is shown, not only the ones with patients, so an
               empty day is still somewhere you can drop someone. */}
           {(plan.days || []).map((day, i) => (
             <div
-              className={`card day-card${dropTarget === day.date ? ' drop-over' : ''}`}
+              className={`card day-card${dropTarget === day.date && dragging ? ' drop-over' : ''}`}
               key={day.date}
-              onDragOver={(e) => {
-                if (!dragging) return;
-                e.preventDefault();
-                setDropTarget(day.date);
-              }}
-              onDragLeave={() => setDropTarget((t) => (t === day.date ? null : t))}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragging) movePatient(dragging.patientId, dragging.from, day.date);
-                setDragging(null);
-                setDropTarget(null);
-              }}
+              data-date={day.date}
             >
               <div className="day-head" style={{ borderLeftColor: dayColor(i) }}>
                 <span className="day-dot" style={{ background: dayColor(i) }} />
@@ -199,20 +300,25 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
                     <li
                       key={p.id}
                       className={`draggable${dragging?.patientId === p.id ? ' dragging' : ''}`}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragging({ patientId: p.id, from: day.date });
-                        e.dataTransfer.effectAllowed = 'move';
-                        // Firefox refuses to start a drag without payload.
-                        e.dataTransfer.setData('text/plain', String(p.id));
-                      }}
-                      onDragEnd={() => {
-                        setDragging(null);
-                        setDropTarget(null);
+                      onPointerDown={(e) => {
+                        // A finger needs to be able to scroll the list, so on
+                        // touch only the grip starts a drag. A mouse can grab
+                        // anywhere on the row.
+                        if (e.pointerType !== 'mouse') return;
+                        startDrag(e, p.id, day.date, p.name);
                       }}
                     >
                       <div className="call-main">
-                        <span className="drag-grip" title="Drag to another day">⠿</span>
+                        <span
+                          className="drag-grip"
+                          title="Drag to another day"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            startDrag(e, p.id, day.date, p.name);
+                          }}
+                        >
+                          ⠿
+                        </span>
                         <span className="call-name">{p.name}</span>
                         <span className={`due-badge ${due.level}`}>{due.label}</span>
                       </div>

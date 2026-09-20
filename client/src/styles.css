@@ -486,8 +486,45 @@ a.button.primary:hover { background: var(--primary-dark); }
 .drag-hint { margin: 0 0 0.2rem; }
 .call-list li.draggable { cursor: grab; }
 .call-list li.draggable:active { cursor: grabbing; }
-.call-list li.dragging { opacity: 0.45; }
-.drag-grip { color: var(--muted); font-size: 0.9rem; letter-spacing: -1px; margin-right: 0.15rem; cursor: grab; }
+.call-list li.dragging { opacity: 0.4; }
+/* touch-action:none is what lets a finger drag instead of scrolling the page.
+   It is on the grip only, so swiping anywhere else still scrolls the list. */
+.drag-grip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2rem; min-height: 2rem; margin: -0.35rem 0.1rem -0.35rem -0.35rem;
+  color: var(--muted); font-size: 1.05rem; letter-spacing: -1px;
+  cursor: grab; touch-action: none; user-select: none; border-radius: 6px;
+}
+.drag-grip:active { cursor: grabbing; background: #eff4ff; color: var(--primary); }
+.drop-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+  background: var(--card); border-bottom: 2px solid var(--primary);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  padding: 0.45rem 0.6rem calc(0.45rem + env(safe-area-inset-top, 0px));
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.drop-bar-label { font-size: 0.76rem; color: var(--muted); }
+.drop-bar-days { display: flex; gap: 0.3rem; }
+.drop-slot {
+  flex: 1; text-align: center; padding: 0.7rem 0.2rem;
+  border: 1px dashed var(--border); border-radius: 8px;
+  font-size: 0.85rem; font-weight: 600; color: var(--muted);
+  background: #f8fafc;
+}
+.drop-slot.current { opacity: 0.55; }
+.drop-slot.on {
+  background: var(--primary); border-color: var(--primary);
+  border-style: solid; color: #fff; transform: scale(1.04);
+}
+
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 100; pointer-events: none;
+  /* positioned by transform from the pointer handler */
+  background: var(--primary); color: #fff;
+  padding: 0.35rem 0.7rem; border-radius: 8px;
+  font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
 .day-card.drop-over { outline: 2px dashed var(--primary); outline-offset: 2px; background: #eff4ff; }
 .empty-day { color: var(--muted); font-size: 0.82rem; font-style: italic; padding: 0.6rem 0 !important; }
 .move-btn {
