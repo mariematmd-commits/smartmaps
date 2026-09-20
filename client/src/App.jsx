@@ -33,6 +33,7 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(false);
   const [hasPasscode, setHasPasscode] = useState(false);
   const [patients, setPatients] = useState([]);
+  const [duplicateCount, setDuplicateCount] = useState(0);
   const [editing, setEditing] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -45,11 +46,22 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       setPatients(await api.listPatients());
+      setDuplicateCount(api.countDuplicates());
       setLoadError('');
     } catch (err) {
       setLoadError(`Could not load your data: ${err.message}`);
     }
   }, []);
+
+  async function handleMergeDuplicates() {
+    const { removed } = await api.mergeDuplicates();
+    await refresh();
+    flash(
+      removed
+        ? `Merged ${removed} duplicate${removed === 1 ? '' : 's'}. Each patient now appears once.`
+        : 'No duplicates found.'
+    );
+  }
 
   const loadAll = useCallback(async () => {
     await refresh();
@@ -271,6 +283,8 @@ export default function App() {
             onLogVisit={handleLogVisit}
             onSelect={(p) => setSelectedId(p.id)}
             onSaveAddress={handleSaveAddress}
+            duplicateCount={duplicateCount}
+            onMergeDuplicates={handleMergeDuplicates}
           />
         </section>
 

@@ -15,10 +15,13 @@ export default function PatientList({
   onLogVisit,
   onSelect,
   onSaveAddress,
+  duplicateCount = 0,
+  onMergeDuplicates,
 }) {
   const [drafts, setDrafts] = useState({}); // patientId -> typed address
   const [savingId, setSavingId] = useState(null);
   const [rowError, setRowError] = useState({});
+  const [merging, setMerging] = useState(false);
 
   async function saveAddress(p) {
     const value = (drafts[p.id] ?? '').trim();
@@ -96,6 +99,32 @@ export default function PatientList({
           </button>
         )}
       </div>
+
+      {duplicateCount > 0 && (
+        <div className="dupe-banner">
+          <span>
+            <strong>
+              {duplicateCount} duplicate patient{duplicateCount === 1 ? '' : 's'}
+            </strong>{' '}
+            — the same person is on your list more than once, usually from importing a file twice.
+            Merging keeps one copy of each and combines their details.
+          </span>
+          <button
+            className="primary"
+            disabled={merging}
+            onClick={async () => {
+              setMerging(true);
+              try {
+                await onMergeDuplicates();
+              } finally {
+                setMerging(false);
+              }
+            }}
+          >
+            {merging ? 'Merging…' : `Merge ${duplicateCount}`}
+          </button>
+        </div>
+      )}
 
       {needsAddressCount > 0 && !onlyNeedsAddress && (
         <p className="addr-nudge">

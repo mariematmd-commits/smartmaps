@@ -82,6 +82,39 @@ function mergeInto(existing, rec) {
   return gainedAddress;
 }
 
+// Group the current list into sets of records that are the same person.
+// Returns only the groups with more than one member, each ordered oldest first.
+function duplicateGroups() {
+  const byName = new Map();
+  for (const p of DATA.patients) {
+    const n = normName(p.name);
+    if (!n) continue;
+    if (!byName.has(n)) byName.set(n, []);
+    byName.get(n).push(p);
+  }
+  const groups = [];
+  for (const sameName of byName.values()) {
+    if (sameName.length < 2) continue;
+    // Split by phone: same name with two different numbers is two people.
+    const buckets = [];
+    for (const p of sameName) {
+      const phone = normPhone(p.phone);
+      const bucket = buckets.find((b) =>
+        b.some((q) => {
+          const qp = normPhone(q.phone);
+          return !phone || !qp || phone === qp;
+        })
+      );
+      if (bucket) bucket.push(p);
+      else buckets.push([p]);
+    }
+    for (const b of buckets) {
+      if (b.length > 1) groups.push(b.sort((a, z) => a.id - z.id));
+    }
+  }
+  return groups;
+}
+
 function defaultCadence() {
   const n = parseInt(DATA.settings.default_cadence_days, 10);
   return Number.isFinite(n) && n > 0 ? n : 60;
@@ -383,6 +416,57 @@ export const api = {
   },
 
   // ---- CSV import (with staggered deadlines) ----
+  // How many extra copies are sitting in the list right now.
+  countDuplicates() {
+    ensure();
+    return duplicateGroups().reduce((n, g) => n + g.length - 1, 0);
+  },
+
+  // Collapse each set of duplicates into the earliest record: fill its blanks
+  // from the copies, move any visits across, then delete the copies.
+  async mergeDuplicates() {
+    ensure();
+    const groups = duplicateGroups();
+    let removed = 0;
+    const doomed = new Set();
+
+    for (const group of groups) {
+      const [keep, ...copies] = group;
+      for (const dup of copies) {
+        for (const f of ['address', 'phone', 'phone2', 'email', 'notes']) {
+          if (!keep[f] && dup[f]) keep[f] = dup[f];
+        }
+        if (keep.lat == null && dup.lat != null) {
+          keep.lat = dup.lat;
+          keep.lng = dup.lng;
+          if (dup.address) keep.address = dup.address;
+        }
+        if (!keep.due_by && dup.due_by) keep.due_by = dup.due_by;
+        if (!keep.last_visited && dup.last_visited) keep.last_visited = dup.last_visited;
+
+        // Re-point this copy's visits at the record we're keeping, dropping any
+        // that would collide with one the keeper already has that day.
+        for (const v of DATA.visits) {
+          if (v.patient_id !== dup.id) continue;
+          const clash = DATA.visits.some(
+            (o) => o.patient_id === keep.id && o.date === v.date && o.id !== v.id
+          );
+          if (clash) doomed.add(v.id);
+          else v.patient_id = keep.id;
+        }
+        doomed.add(`p${dup.id}`);
+        removed++;
+      }
+    }
+
+    if (removed) {
+      DATA.patients = DATA.patients.filter((p) => !doomed.has(`p${p.id}`));
+      DATA.visits = DATA.visits.filter((v) => !doomed.has(v.id));
+      await save();
+    }
+    return { removed, groups: groups.length };
+  },
+
   async importCsv(csv) {
     ensure();
     if (typeof csv !== 'string' || !csv.trim()) throw new Error('No CSV content provided.');
