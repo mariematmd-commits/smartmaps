@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { todayStr } from '../lib/dates.js';
 import { daysUntil, formatDate } from '../format.js';
+import { atRisk, WINDOW_DAYS } from '../lib/windowWatch.js';
 
 // Home has two faces. The very first time the app is opened it explains what
 // this is and what needs setting up; after that it gets out of the way and
@@ -93,6 +94,9 @@ export default function HomeScreen({ patients, settings, geocodingEnabled, onGo 
 
   // Same definition the Patients page uses: no address typed yet.
   const needsAddress = patients.filter((p) => !p.address).length;
+  const risk = atRisk(patients);
+  const missed = risk.filter((r) => r.level === 'missed');
+  const closing = risk.filter((r) => r.level === 'closing');
   const overdue = patients.filter((p) => p.due_by && daysUntil(p.due_by) < 0).length;
   const dueSoon = patients.filter((p) => {
     if (!p.due_by) return false;
@@ -132,19 +136,41 @@ export default function HomeScreen({ patients, settings, geocodingEnabled, onGo 
       <div className="card home-caseload">
         <h2>Your caseload</h2>
         <div className="home-stats">
-          <div className="stat">
+          <button className="stat" onClick={() => onGo('patients', 'all')}>
             <span className="stat-num">{patients.length}</span>
             <span className="stat-label">patient{patients.length === 1 ? '' : 's'}</span>
-          </div>
-          <div className={`stat ${overdue ? 'warn' : ''}`}>
+          </button>
+          <button
+            className={`stat ${overdue ? 'warn' : ''}`}
+            onClick={() => overdue && onGo('patients', 'overdue')}
+            disabled={!overdue}
+          >
             <span className="stat-num">{overdue}</span>
-            <span className="stat-label">overdue</span>
-          </div>
-          <div className="stat">
+            <span className="stat-label">overdue{overdue ? ' — see who' : ''}</span>
+          </button>
+          <button
+            className="stat"
+            onClick={() => dueSoon && onGo('patients', 'due-week')}
+            disabled={!dueSoon}
+          >
             <span className="stat-num">{dueSoon}</span>
             <span className="stat-label">due this week</span>
-          </div>
+          </button>
         </div>
+
+        {missed.length > 0 && (
+          <button className="home-alert danger" onClick={() => onGo('patients', 'missed')}>
+            🚨 {missed.length} patient{missed.length === 1 ? ' is' : 's are'} more than{' '}
+            {WINDOW_DAYS} days past their due date — the visit window has closed. Tap to see who and
+            book them →
+          </button>
+        )}
+        {closing.length > 0 && (
+          <button className="home-alert" onClick={() => onGo('plan')}>
+            ⏳ {closing.length} patient{closing.length === 1 ? "'s window closes" : "s' windows close"}{' '}
+            within a week. Plan them in before they run out of time →
+          </button>
+        )}
 
         {needsAddress > 0 && (
           <button className="home-alert" onClick={() => onGo('patients')}>

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { dueStatus, formatDate } from '../format.js';
 import { rebalanceFrom } from '../lib/rebalance.js';
+import { atRisk, suggestDay, WINDOW_DAYS } from '../lib/windowWatch.js';
 import { dayColor } from '../dayColors.js';
 import DayPlanner from './DayPlanner.jsx';
 
@@ -205,6 +206,18 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
     }
   }
 
+  // Accept a suggestion: drop the patient onto that day of the proposal.
+  function placeAtRisk(patient, date) {
+    if (!plan) return;
+    const days = plan.days.map((d) => ({ ...d, patients: [...d.patients] }));
+    const target = days.find((d) => d.date === date);
+    if (!target) return;
+    target.patients.push(patient);
+    target.patients.sort((a, b) => (a.due_by || '').localeCompare(b.due_by || ''));
+    setMovedIds((s) => new Set(s).add(patient.id));
+    onPlan({ ...plan, days });
+  }
+
   function movePatient(patientId, fromDate, toDate) {
     if (!plan || fromDate === toDate) return;
     // Remember who she placed by hand, and how far back the change reaches.
@@ -255,6 +268,19 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
   }
 
   const days = activeDays(plan);
+
+  // Who is running out of window and isn't already on the board this week.
+  const unplacedAtRisk = (() => {
+    if (!plan) return [];
+    const placed = new Set(plan.days.flatMap((d) => d.patients.map((p) => p.id)));
+    return atRisk(patients)
+      .filter((r) => !placed.has(r.patient.id))
+      .map((r) => ({
+        ...r,
+        suggestion: suggestDay(r.patient, plan.days, { maxPerDay: plan.maxPerDay || 8 }),
+      }))
+      .slice(0, 8); // a long tail here would just be noise
+  })();
   const countsFor = (date) => {
     const forDay = visits.filter((v) => v.date === date);
     return {
@@ -328,6 +354,52 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
                 {plan.needsLocation.length === 1 ? '' : 's'} have no map location.
               </p>
             )}
+            {/* Anyone whose window has closed, or closes this week, and who the
+                builder did not already place. Each gets a concrete suggestion
+                she can accept in one tap — or ignore and place herself. */}
+            {unplacedAtRisk.length > 0 && (
+              <div className="window-alert">
+                <strong>
+                  ⚠️ {unplacedAtRisk.length} patient{unplacedAtRisk.length === 1 ? '' : 's'} at risk
+                  of passing the {WINDOW_DAYS}-day visit window
+                </strong>
+                <ul>
+                  {unplacedAtRisk.map(({ patient, level, daysOver, daysLeft, suggestion }) => (
+                    <li key={patient.id}>
+                      <span className="wa-name">{patient.name}</span>
+                      <span className={`wa-state ${level}`}>
+                        {level === 'missed'
+                          ? `${daysOver}d past the window`
+                          : `window closes in ${daysLeft}d`}
+                      </span>
+                      {suggestion ? (
+                        <button
+                          className="seg on"
+                          disabled={busy}
+                          onClick={() => placeAtRisk(patient, suggestion.date)}
+                        >
+                          Put on {suggestion.label}
+                          {suggestion.nearestKm != null && suggestion.nearestKm < 11
+                            ? ` · ${suggestion.nearestKm.toFixed(0)}km from that day’s stops`
+                            : ''}
+                          {!suggestion.inWindow ? ' · soonest possible' : ''}
+                        </button>
+                      ) : (
+                        <span className="field-hint">
+                          {patient.lat == null
+                            ? 'Needs an address first'
+                            : 'Every day this week is full'}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <span className="field-hint">
+                  Or drag them onto whichever day you prefer — these are only suggestions.
+                </span>
+              </div>
+            )}
+
             {plan.overflow.length > 0 && (
               <p className="notice-line">
                 {plan.overflow.length} more are due this week than fit — they'll roll over or serve

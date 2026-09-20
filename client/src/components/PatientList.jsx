@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { dueStatus, formatDate, visitWindow } from '../format.js';
+import { useState, useEffect } from 'react';
+import { dueStatus, formatDate, visitWindow, daysUntil, VISIT_WINDOW_DAYS } from '../format.js';
 
 // List of patients with deadline status and edit / delete / geocode / log-visit actions.
 // Patients missing an address get an inline box right in the row: importing a
@@ -17,6 +17,8 @@ export default function PatientList({
   onSaveAddress,
   duplicateCount = 0,
   onMergeDuplicates,
+  filter,
+  filterNonce,
 }) {
   const [drafts, setDrafts] = useState({}); // patientId -> typed address
   const [savingId, setSavingId] = useState(null);
@@ -51,6 +53,16 @@ export default function PatientList({
   const [query, setQuery] = useState('');
   // Imports usually arrive without addresses, so make finding those one tap.
   const [onlyNeedsAddress, setOnlyNeedsAddress] = useState(false);
+  // 'all' | 'overdue' | 'missed' | 'due-week' — driven from the Home screen too.
+  const [dueFilter, setDueFilter] = useState(filter || 'all');
+
+  useEffect(() => {
+    if (filter) {
+      setDueFilter(filter);
+      setOnlyNeedsAddress(false);
+      setQuery('');
+    }
+  }, [filter, filterNonce]);
 
   if (patients.length === 0) {
     return (
@@ -65,8 +77,22 @@ export default function PatientList({
   // problem and already carries a "no location" badge.
   const needsAddressCount = patients.filter((p) => !p.address).length;
 
+  const W = VISIT_WINDOW_DAYS;
+  const matchesDue = (p) => {
+    const n = daysUntil(p.due_by);
+    if (dueFilter === 'overdue') return n !== null && n < 0;      // any day past due
+    if (dueFilter === 'missed') return n !== null && n < -W;      // past the whole window
+    if (dueFilter === 'due-week') return n !== null && n >= 0 && n <= 7;
+    return true;
+  };
+  const counts = {
+    overdue: patients.filter((p) => { const n = daysUntil(p.due_by); return n !== null && n < 0; }).length,
+    missed: patients.filter((p) => { const n = daysUntil(p.due_by); return n !== null && n < -W; }).length,
+  };
+
   const q = query.trim().toLowerCase();
   const shown = patients
+    .filter(matchesDue)
     .filter((p) => (onlyNeedsAddress ? !p.address : true))
     .filter((p) => (q ? p.name.toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q) : true))
     // Sort most-urgent first so "who's coming due" is obvious.
@@ -96,6 +122,27 @@ export default function PatientList({
             onClick={() => setOnlyNeedsAddress((v) => !v)}
           >
             Needs an address ({needsAddressCount})
+          </button>
+        )}
+        {counts.overdue > 0 && (
+          <button
+            className={dueFilter === 'overdue' ? 'filter-chip on' : 'filter-chip'}
+            onClick={() => setDueFilter((f) => (f === 'overdue' ? 'all' : 'overdue'))}
+          >
+            Overdue ({counts.overdue})
+          </button>
+        )}
+        {counts.missed > 0 && (
+          <button
+            className={dueFilter === 'missed' ? 'filter-chip on danger' : 'filter-chip danger'}
+            onClick={() => setDueFilter((f) => (f === 'missed' ? 'all' : 'missed'))}
+          >
+            Window closed ({counts.missed})
+          </button>
+        )}
+        {dueFilter !== 'all' && (
+          <button className="filter-chip" onClick={() => setDueFilter('all')}>
+            Show all
           </button>
         )}
       </div>

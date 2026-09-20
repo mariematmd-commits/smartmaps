@@ -610,3 +610,28 @@ a.button.primary:hover { background: var(--primary-dark); }
   .board-day { flex: 1; min-width: 0; }
   .board-day .call-name { font-size: 0.82rem; }
 }
+
+/* Visit-window warnings */
+.window-alert {
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+  padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.45rem;
+  font-size: 0.84rem; color: #991b1b;
+}
+.window-alert ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.window-alert li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.wa-name { font-weight: 600; color: var(--text); }
+.wa-state { font-size: 0.75rem; font-weight: 600; padding: 0.08rem 0.4rem; border-radius: 999px; }
+.wa-state.missed { background: #fee2e2; color: var(--danger); }
+.wa-state.closing { background: var(--warn-bg); color: #9a3412; }
+.window-alert li button { margin-left: auto; }
+
+/* Tappable caseload stats */
+button.stat {
+  background: none; border: 0; padding: 0.2rem 0.4rem 0.2rem 0;
+  text-align: left; cursor: pointer; border-radius: 8px;
+}
+button.stat:disabled { cursor: default; opacity: 0.75; }
+button.stat:not(:disabled):hover { background: #eff4ff; }
+.home-alert.danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.filter-chip.danger { border-color: #fecaca; color: var(--danger); }
+.filter-chip.on.danger { background: var(--danger); border-color: var(--danger); color: #fff; }

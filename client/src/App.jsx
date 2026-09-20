@@ -41,6 +41,8 @@ export default function App() {
   const [loadError, setLoadError] = useState('');
   const [notice, setNotice] = useState('');
   const [page, setPage] = useState('home');
+  const [listFilter, setListFilter] = useState(null);
+  const [filterNonce, setFilterNonce] = useState(0);
   const [plan, setPlan] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -223,8 +225,12 @@ export default function App() {
   if (booting) return null;
   if (!unlocked) return <LockScreen onUnlocked={() => setUnlocked(true)} />;
 
-  const go = (p) => {
+  const go = (p, filter) => {
     setPage(p);
+    if (filter) {
+      setListFilter(filter);
+      setFilterNonce((n) => n + 1); // re-apply even if it's the same filter
+    }
     window.scrollTo({ top: 0 });
   };
   // The map is only meaningful on pages that show locations.
@@ -285,6 +291,8 @@ export default function App() {
             onSaveAddress={handleSaveAddress}
             duplicateCount={duplicateCount}
             onMergeDuplicates={handleMergeDuplicates}
+            filter={listFilter}
+            filterNonce={filterNonce}
           />
         </section>
 
