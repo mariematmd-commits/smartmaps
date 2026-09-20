@@ -49,6 +49,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
   const [committed, setCommitted] = useState(false);
   const [visits, setVisits] = useState([]); // week-level, for the day chips
   const [selectedDate, setSelectedDate] = useState(null);
+  const [showBoard, setShowBoard] = useState(false);
 
   async function build() {
     setBusy(true);
@@ -81,13 +82,31 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
     return null;
   };
 
-  function startDrag(e, patientId, fromDate, name) {
+  // `onDrop(id, fromDate, toDate)` differs by stage: in the proposal it edits
+  // the plan on screen, while during the calling week it moves a real visit.
+  function startDrag(e, id, fromDate, name, onDrop) {
     if (e.button != null && e.button !== 0) return; // ignore right-click
     e.preventDefault();
-    dragRef.current = { patientId, from: fromDate, name, x: e.clientX, y: e.clientY };
-    setDragging({ patientId, from: fromDate, name });
+    dragRef.current = { patientId: id, from: fromDate, name, onDrop, x: e.clientX, y: e.clientY };
+    setDragging({ patientId: id, from: fromDate, name });
     setDropTarget(fromDate);
     setMoveOpen(null);
+  }
+
+  // Move a committed visit to another day. She has usually just been told on
+  // the phone which day suits, so the old appointment time no longer applies.
+  async function moveVisit(visitId, fromDate, toDate) {
+    if (fromDate === toDate) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.updateVisit(visitId, { date: toDate, slot_time: null });
+      await reloadVisits();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -120,7 +139,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
     const finish = () => {
       const d = dragRef.current;
       const target = d ? dayUnder(d.x, d.y) : null;
-      if (d && target && target !== d.from) movePatient(d.patientId, d.from, target);
+      if (d && target && target !== d.from) d.onDrop(d.patientId, d.from, target);
       dragRef.current = null;
       autoScroll.current = 0;
       setDragging(null);
@@ -246,6 +265,30 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
 
   return (
     <div className="week-planner">
+      {/* Rendered once for the whole planner so dragging works the same in the
+          proposal and while she is working the week. */}
+      {dragging && (
+        <>
+          <div className="drop-bar" aria-hidden="true">
+            <span className="drop-bar-label">Drop {dragging.name} on…</span>
+            <div className="drop-bar-days">
+              {(plan?.days || []).map((d) => (
+                <span
+                  key={d.date}
+                  data-date={d.date}
+                  className={`drop-slot${dropTarget === d.date ? ' on' : ''}${d.date === dragging.from ? ' current' : ''}`}
+                >
+                  {d.label}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div ref={ghostRef} className="drag-ghost" aria-hidden="true">
+            {dragging.name}
+          </div>
+        </>
+      )}
+
       <div className="card">
         <h2>Plan a week</h2>
         <p className="hint">
@@ -316,29 +359,6 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
           )}
           {rebalanced && <p className="notice-line rebalance-done">{rebalanced}</p>}
 
-          {/* While dragging, every day is reachable without scrolling: this bar
-              stays pinned at the top, so the target is never off-screen. */}
-          {dragging && (
-            <>
-              <div className="drop-bar" aria-hidden="true">
-                <span className="drop-bar-label">Drop {dragging.name} on…</span>
-                <div className="drop-bar-days">
-                  {(plan.days || []).map((d) => (
-                    <span
-                      key={d.date}
-                      data-date={d.date}
-                      className={`drop-slot${dropTarget === d.date ? ' on' : ''}${d.date === dragging.from ? ' current' : ''}`}
-                    >
-                      {d.label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div ref={ghostRef} className="drag-ghost" aria-hidden="true">
-                {dragging.name}
-              </div>
-            </>
-          )}
 
           {/* Every work day is shown, not only the ones with patients, so an
               empty day is still somewhere you can drop someone. */}
@@ -368,7 +388,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
                         // touch only the grip starts a drag. A mouse can grab
                         // anywhere on the row.
                         if (e.pointerType !== 'mouse') return;
-                        startDrag(e, p.id, day.date, p.name);
+                        startDrag(e, p.id, day.date, p.name, movePatient);
                       }}
                     >
                       <div className="call-main">
@@ -377,7 +397,7 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
                           title="Drag to another day"
                           onPointerDown={(e) => {
                             e.stopPropagation();
-                            startDrag(e, p.id, day.date, p.name);
+                            startDrag(e, p.id, day.date, p.name, movePatient);
                           }}
                         >
                           ⠿
@@ -454,6 +474,70 @@ export default function WeekPlanner({ plan, onPlan, patients = [], homeBase = ''
                   </button>
                 );
               })}
+          </div>
+
+          {/* Moving someone really happens here, not in the proposal: she only
+              learns who is free on which day once she is on the phone. */}
+          <div className="card move-board">
+            <button className="card-toggle" onClick={() => setShowBoard((s) => !s)}>
+              <span>↔ Move patients between days</span>
+              <span className="chevron">{showBoard ? '▾' : '▸'}</span>
+            </button>
+            {showBoard && (
+              <>
+                <p className="field-hint">
+                  Drag anyone by the <strong>⠿</strong> handle onto another day — useful when a
+                  call ends with “not this week, but Thursday works”. A confirmed visit loses its
+                  agreed time when it moves, so book a new one on the day.
+                </p>
+                <div className="board-days">
+                  {plan.days.map((d, i) => {
+                    const onDay = visits.filter((v) => v.date === d.date);
+                    return (
+                      <div className="card day-card board-day" key={d.date} data-date={d.date}>
+                        <div className="day-head" style={{ borderLeftColor: dayColor(i) }}>
+                          <span className="day-dot" style={{ background: dayColor(i) }} />
+                          <strong>{d.label}</strong>
+                          <span className="day-count">
+                            {onDay.length ? `${onDay.length}` : 'empty'}
+                          </span>
+                        </div>
+                        <ul className="call-list">
+                          {onDay.map((v) => (
+                            <li
+                              key={v.id}
+                              className={`draggable${dragging?.patientId === v.id ? ' dragging' : ''}`}
+                              onPointerDown={(e) => {
+                                if (e.pointerType !== 'mouse') return;
+                                startDrag(e, v.id, d.date, v.name, moveVisit);
+                              }}
+                            >
+                              <div className="call-main">
+                                <span
+                                  className="drag-grip"
+                                  title="Drag to another day"
+                                  onPointerDown={(e) => {
+                                    e.stopPropagation();
+                                    startDrag(e, v.id, d.date, v.name, moveVisit);
+                                  }}
+                                >
+                                  ⠿
+                                </span>
+                                <span className="call-name">{v.name}</span>
+                                <span className={`status-badge ${v.status}`}>{v.status}</span>
+                              </div>
+                            </li>
+                          ))}
+                          {onDay.length === 0 && (
+                            <li className="empty-day">Drop someone here for {d.label}.</li>
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           {selectedDate && (

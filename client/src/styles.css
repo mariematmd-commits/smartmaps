@@ -599,3 +599,14 @@ a.button.primary:hover { background: var(--primary-dark); }
   border-radius: 6px; padding: 0.3rem 0.5rem; cursor: pointer; font-size: 0.95rem;
 }
 .topbar h1 { cursor: pointer; }
+
+/* Week board in the calling view */
+.move-board { padding-bottom: 0.8rem; }
+.board-days { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+.board-day { box-shadow: none; border: 1px solid var(--border); }
+.board-day .call-list > li { padding: 0.35rem 0; }
+@media (min-width: 900px) {
+  .board-days { flex-direction: row; align-items: flex-start; }
+  .board-day { flex: 1; min-width: 0; }
+  .board-day .call-name { font-size: 0.82rem; }
+}
