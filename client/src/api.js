@@ -343,23 +343,40 @@ export const api = {
           patients: DATA.patients,
         });
     if (plan.error) throw new Error(plan.error);
-    const already = new Set(
-      DATA.visits.filter((v) => v.date >= plan.weekStart && v.date <= plan.weekEnd).map((v) => v.patient_id)
-    );
+    const thisWeek = DATA.visits.filter((v) => v.date >= plan.weekStart && v.date <= plan.weekEnd);
+    const existing = new Map(thisWeek.map((v) => [v.patient_id, v]));
+
     let created = 0;
+    let moved = 0;
+    const handled = new Set();
     for (const day of plan.days) {
       for (const p of day.patients) {
-        if (already.has(p.id)) continue;
-        DATA.visits.push({
-          id: DATA.visitSeq++, patient_id: p.id, date: day.date, status: 'proposed',
-          win_start: null, win_end: null, slot_time: null, is_emergency: 0, notes: null,
-        });
-        already.add(p.id);
-        created++;
+        if (handled.has(p.id)) continue;
+        handled.add(p.id);
+        const v = existing.get(p.id);
+        if (!v) {
+          DATA.visits.push({
+            id: DATA.visitSeq++, patient_id: p.id, date: day.date, status: 'proposed',
+            win_start: null, win_end: null, slot_time: null, is_emergency: 0, notes: null,
+          });
+          created++;
+          continue;
+        }
+        if (v.date === day.date) continue;
+        // She moved someone who already has a visit this week. Nothing has been
+        // agreed with a patient who is still 'proposed' or awaiting a call back,
+        // so follow the board. A confirmed or declined visit means she has
+        // already spoken to them — leave that alone rather than silently
+        // rearranging an appointment somebody is expecting.
+        if (v.status === 'proposed' || v.status === 'callback') {
+          v.date = day.date;
+          v.slot_time = null; // the old time belonged to the old day
+          moved++;
+        }
       }
     }
     await save();
-    return { created, weekStart: plan.weekStart, weekEnd: plan.weekEnd };
+    return { created, moved, weekStart: plan.weekStart, weekEnd: plan.weekEnd };
   },
   async dayPlan(date) {
     ensure();
