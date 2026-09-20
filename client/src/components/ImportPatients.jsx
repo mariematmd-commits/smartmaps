@@ -6,40 +6,61 @@ import { api } from '../api.js';
 // Rows without an address still import; she fills those in afterwards.
 export default function ImportPatients({ onImported }) {
   const [open, setOpen] = useState(false);
-  const [csvText, setCsvText] = useState('');
-  const [csvName, setCsvName] = useState('');
+  const [files, setFiles] = useState([]); // [{ name, text }]
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
-  function onFile(e) {
-    const file = e.target.files?.[0];
+  const readFile = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, text: String(reader.result || '') });
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+      reader.readAsText(file);
+    });
+
+  async function onFile(e) {
+    const picked = [...(e.target.files || [])];
+    e.target.value = ''; // let the same file be re-picked later
+    if (!picked.length) return;
     setMsg('');
-    if (!file) {
-      setCsvText('');
-      setCsvName('');
-      return;
+    try {
+      const read = await Promise.all(picked.map(readFile));
+      // Queue up, skipping anything already staged under the same name.
+      setFiles((prev) => [...prev, ...read.filter((r) => !prev.some((p) => p.name === r.name))]);
+    } catch (err) {
+      setMsg(err.message);
     }
-    setCsvName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => setCsvText(String(reader.result || ''));
-    reader.onerror = () => setMsg('Could not read that file.');
-    reader.readAsText(file);
   }
 
   async function run() {
-    if (!csvText) return;
+    if (!files.length) return;
     setBusy(true);
     setMsg('');
+    const total = { imported: 0, merged: 0, located: 0, failed: 0, skipped: 0 };
+    let geocoded = true;
     try {
-      const r = await api.importCsv(csvText);
-      const bits = [`Imported ${r.imported} patient${r.imported === 1 ? '' : 's'}`];
-      if (r.located) bits.push(`${r.located} placed on the map`);
-      if (r.failed) bits.push(`${r.failed} address${r.failed === 1 ? '' : 'es'} not found`);
-      if (r.skipped) bits.push(`${r.skipped} row${r.skipped === 1 ? '' : 's'} skipped (no name)`);
-      if (!r.geocoded) bits.push('add your Google Maps key to place them on the map');
+      // Sequentially, so the second file sees patients from the first and can
+      // merge into them rather than duplicating.
+      for (const f of files) {
+        const r = await api.importCsv(f.text);
+        total.imported += r.imported;
+        total.merged += r.merged || 0;
+        total.located += r.located;
+        total.failed += r.failed;
+        total.skipped += r.skipped;
+        geocoded = r.geocoded;
+      }
+      const bits = [
+        `Added ${total.imported} new patient${total.imported === 1 ? '' : 's'}`,
+      ];
+      if (total.merged)
+        bits.push(`${total.merged} already on your list — details merged in, not duplicated`);
+      if (total.located) bits.push(`${total.located} placed on the map`);
+      if (total.failed) bits.push(`${total.failed} address${total.failed === 1 ? '' : 'es'} not found`);
+      if (total.skipped) bits.push(`${total.skipped} row${total.skipped === 1 ? '' : 's'} skipped (no name)`);
+      if (!geocoded) bits.push('add your Google Maps key to place them on the map');
       setMsg(`${bits.join(' · ')}.`);
-      setCsvText('');
-      setCsvName('');
+      setFiles([]);
       onImported?.();
     } catch (err) {
       setMsg(err.message);
@@ -62,15 +83,37 @@ export default function ImportPatients({ onImported }) {
             patients without an address import fine, and you can add addresses afterwards from the
             Patients page.
           </p>
+          <p className="field-hint">
+            You can import <strong>as many files as you like</strong>, now or later — each one adds
+            to your list. Anyone who appears in more than one file stays a single patient: details
+            from the newer file fill in whatever was blank, and nothing you have already entered
+            gets overwritten.
+          </p>
 
           <div className="import-controls">
-            <input type="file" accept=".csv,text/csv" onChange={onFile} disabled={busy} />
-            <button className="primary" onClick={run} disabled={busy || !csvText}>
-              {busy ? 'Importing…' : 'Import'}
+            <input type="file" accept=".csv,text/csv" multiple onChange={onFile} disabled={busy} />
+            <button className="primary" onClick={run} disabled={busy || !files.length}>
+              {busy ? 'Importing…' : `Import${files.length > 1 ? ` ${files.length} files` : ''}`}
             </button>
           </div>
 
-          {csvName && !msg && <p className="field-hint">Selected: {csvName}</p>}
+          {files.length > 0 && (
+            <ul className="file-queue">
+              {files.map((f) => (
+                <li key={f.name}>
+                  <span>{f.name}</span>
+                  <button
+                    className="remove-x"
+                    title="Remove"
+                    disabled={busy}
+                    onClick={() => setFiles((prev) => prev.filter((p) => p.name !== f.name))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {msg && <p className="field-hint import-result">{msg}</p>}
 
           <details className="import-help">

@@ -38,6 +38,50 @@ const ensure = () => {
 const save = () => vault.persistVault(KEY, DATA);
 const apiKey = () => DATA.settings.google_api_key || '';
 
+// --- duplicate matching for imports -------------------------------------
+// Caseloads arrive in pieces: one file per agency, a corrected list a week
+// later. Importing the second file should top up the first, not produce two
+// of everyone.
+const normName = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '') // strip accents
+    .replace(/[^a-z0-9 ]/g, ' ')     // punctuation -> space
+    .replace(/\s+/g, ' ')
+    .trim();
+const normPhone = (s) => String(s || '').replace(/\D/g, '');
+
+// Same person? Same name, unless both records carry phone numbers that
+// disagree — two different Maria Garcias keep their own rows.
+function findDuplicate(rec) {
+  const n = normName(rec.name);
+  if (!n) return null;
+  const recPhone = normPhone(rec.phone);
+  return (
+    DATA.patients.find((p) => {
+      if (normName(p.name) !== n) return false;
+      const pPhone = normPhone(p.phone);
+      if (recPhone && pPhone && recPhone !== pPhone) return false;
+      return true;
+    }) || null
+  );
+}
+
+// Merge a freshly imported row into an existing patient: fill gaps, never
+// overwrite something she has already entered or corrected by hand.
+function mergeInto(existing, rec) {
+  let gainedAddress = false;
+  for (const f of ['address', 'phone', 'phone2', 'email', 'notes']) {
+    if (!existing[f] && rec[f]) {
+      existing[f] = rec[f];
+      if (f === 'address') gainedAddress = true;
+    }
+  }
+  if (!existing.due_by && rec.due_by) existing.due_by = rec.due_by;
+  return gainedAddress;
+}
+
 function defaultCadence() {
   const n = parseInt(DATA.settings.default_cadence_days, 10);
   return Number.isFinite(n) && n > 0 ? n : 60;
@@ -385,20 +429,37 @@ export const api = {
 
     const canGeocode = hasKey(apiKey());
     let imported = 0;
+    let merged = 0;
     let located = 0;
     let failed = 0;
     for (const rec of records) {
-      const p = {
-        id: DATA.patientSeq++, name: rec.name, address: rec.address, lat: null, lng: null,
-        phone: rec.phone, phone2: rec.phone2, email: rec.email, notes: rec.notes,
-        visit_minutes: rec.visit_minutes, cadence_days: rec.cadence_days, due_by: rec.due_by, last_visited: null,
-      };
-      DATA.patients.push(p);
-      imported++;
-      if (canGeocode && rec.address) {
+      // Matching runs against the live list, so duplicates are caught both
+      // across files and within a single file.
+      const existing = findDuplicate(rec);
+      let target;
+      let needsGeocode;
+
+      if (existing) {
+        const gainedAddress = mergeInto(existing, rec);
+        merged++;
+        target = existing;
+        // Only spend a lookup if this row actually told us something new.
+        needsGeocode = gainedAddress || (existing.address && existing.lat == null);
+      } else {
+        target = {
+          id: DATA.patientSeq++, name: rec.name, address: rec.address, lat: null, lng: null,
+          phone: rec.phone, phone2: rec.phone2, email: rec.email, notes: rec.notes,
+          visit_minutes: rec.visit_minutes, cadence_days: rec.cadence_days, due_by: rec.due_by, last_visited: null,
+        };
+        DATA.patients.push(target);
+        imported++;
+        needsGeocode = Boolean(target.address);
+      }
+
+      if (canGeocode && needsGeocode && target.address) {
         try {
-          const g = await geocodeAddress(apiKey(), rec.address);
-          p.lat = g.lat; p.lng = g.lng; p.address = g.formatted;
+          const g = await geocodeAddress(apiKey(), target.address);
+          target.lat = g.lat; target.lng = g.lng; target.address = g.formatted;
           located++;
         } catch {
           failed++;
@@ -406,6 +467,6 @@ export const api = {
       }
     }
     await save();
-    return { imported, located, failed, skipped, geocoded: canGeocode };
+    return { imported, merged, located, failed, skipped, geocoded: canGeocode };
   },
 };
